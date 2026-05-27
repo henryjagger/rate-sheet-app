@@ -686,7 +686,7 @@ with tab3:
         {"Column Name": "5 Year Fixed",                            "Used by App": "Yes", "Description": "Rate for 5 Year Fixed term.", "Example": "3.75%"},
     ])
 
-    st.dataframe(master_cols, width="stretch", hide_index=True)
+    st.dataframe(master_cols.set_index("Column Name").T, width="stretch")
     st.caption("Rates can be entered as percentages (3.75%) or decimals (0.0375). Blank cells or rates below 1% are ignored.")
 
 st.markdown("---")
