@@ -578,7 +578,7 @@ if not st.session_state.authenticated:
         """, unsafe_allow_html=True)
         password = st.text_input("Password", type="password", label_visibility="collapsed",
                                  placeholder="Password")
-        if st.button("Login", use_container_width=True):
+        if st.button("Enter", use_container_width=True):
             if password == "Locarno":
                 st.session_state.authenticated = True
                 st.rerun()
