@@ -496,21 +496,110 @@ st.set_page_config(
     layout="wide"
 )
 
+st.markdown("""
+<style>
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+
+    html, body, [class*="css"] {
+        font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
+    }
+
+    /* Navy buttons */
+    .stButton > button {
+        background-color: #1B3A6B;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        padding: 0.5rem 2rem;
+        font-weight: 600;
+        letter-spacing: 0.4px;
+        transition: background-color 0.2s;
+    }
+    .stButton > button:hover {
+        background-color: #2D5BA3;
+        color: white;
+    }
+
+    /* Login card */
+    .login-card {
+        background: white;
+        border-radius: 12px;
+        padding: 2.5rem 2.5rem 2rem 2.5rem;
+        box-shadow: 0 4px 24px rgba(27,58,107,0.12);
+        margin-top: 2rem;
+    }
+    .login-title {
+        color: #1B3A6B;
+        font-size: 1.6rem;
+        font-weight: 700;
+        margin-bottom: 0.25rem;
+    }
+    .login-sub {
+        color: #6B7A99;
+        font-size: 0.9rem;
+        margin-bottom: 1.5rem;
+    }
+
+    /* Page header banner */
+    .page-header {
+        background: linear-gradient(135deg, #1B3A6B 0%, #2D5BA3 100%);
+        color: white;
+        padding: 1.5rem 2rem;
+        border-radius: 10px;
+        margin-bottom: 1.5rem;
+    }
+    .page-header h1 {
+        color: white;
+        margin: 0;
+        font-size: 1.8rem;
+        font-weight: 700;
+        letter-spacing: 0.3px;
+    }
+    .page-header p {
+        color: #C8D8F0;
+        margin: 0.25rem 0 0 0;
+        font-size: 0.9rem;
+    }
+
+    /* Active tab */
+    .stTabs [data-baseweb="tab"][aria-selected="true"] {
+        color: #1B3A6B;
+        font-weight: 700;
+        border-bottom-color: #1B3A6B;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
 if not st.session_state.authenticated:
-    st.title("Rate Sheet Generator")
-    password = st.text_input("Enter password", type="password")
-    if st.button("Login"):
-        if password == "Locarno":
-            st.session_state.authenticated = True
-            st.rerun()
-        else:
-            st.error("Incorrect password.")
+    _, col, _ = st.columns([1, 1.2, 1])
+    with col:
+        st.markdown("""
+        <div class="login-card">
+            <div class="login-title">Rate Sheet Generator</div>
+            <div class="login-sub">Enter your password to continue</div>
+        </div>
+        """, unsafe_allow_html=True)
+        password = st.text_input("Password", type="password", label_visibility="collapsed",
+                                 placeholder="Password")
+        if st.button("Login", use_container_width=True):
+            if password == "Locarno":
+                st.session_state.authenticated = True
+                st.rerun()
+            else:
+                st.error("Incorrect password.")
     st.stop()
 
-st.title("Rate Sheet Generator")
+st.markdown("""
+<div class="page-header">
+    <h1>Rate Sheet Generator</h1>
+    <p>Generate and query institutional rate sheets</p>
+</div>
+""", unsafe_allow_html=True)
 
 if "query_results" not in st.session_state:
     st.session_state.query_results = None
