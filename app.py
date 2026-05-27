@@ -376,14 +376,6 @@ def create_excel(output):
         color="CCCCCC"
     )
 
-    for cell in ws[1]:
-        cell.fill = header_fill
-        cell.font = header_font
-        cell.alignment = Alignment(
-            horizontal="center",
-            vertical="center"
-        )
-
     for row in ws.iter_rows():
         for cell in row:
             cell.border = Border(
@@ -402,6 +394,15 @@ def create_excel(output):
                 name="Arial",
                 size=10
             )
+
+    # Apply header styles after the general loop so they are not overwritten
+    for cell in ws[1]:
+        cell.fill = header_fill
+        cell.font = Font(name="Arial", size=10, color="FFFFFF", bold=True)
+        cell.alignment = Alignment(
+            horizontal="center",
+            vertical="center"
+        )
 
     for cell in ws["D"][1:]:
         cell.number_format = "0.00%"
