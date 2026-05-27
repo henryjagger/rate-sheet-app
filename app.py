@@ -1,8 +1,11 @@
+import os
 import streamlit as st
 import pandas as pd
 from io import BytesIO
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+LOOKUP_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "institution_lookup.xlsx")
 
 
 TERM_COLUMNS = [
@@ -226,14 +229,10 @@ def query_from_sheet(file, selected_terms, top_n, credit_rated_only):
     return results
 
 
-def generate_custom_query(master_file, lookup_file, selected_terms, top_n, credit_rated_only):
+def generate_custom_query(master_file, lookup, selected_terms, top_n, credit_rated_only):
     df_master = pd.read_excel(master_file)
-    df_lookup = pd.read_excel(lookup_file)
 
     df_master.columns = [str(c).strip().lower() for c in df_master.columns]
-    df_lookup.columns = [str(c).strip().lower() for c in df_lookup.columns]
-
-    lookup = build_lookup(df_lookup)
 
     term_map = {display: (col, ttype) for display, col, ttype in TERM_COLUMNS}
 
@@ -424,21 +423,13 @@ def create_excel(output):
     return output_stream
 
 
-def generate_report(master_file, lookup_file):
+def generate_report(master_file, lookup):
     df_master = pd.read_excel(master_file)
-    df_lookup = pd.read_excel(lookup_file)
 
     df_master.columns = [
         str(c).strip().lower()
         for c in df_master.columns
     ]
-
-    df_lookup.columns = [
-        str(c).strip().lower()
-        for c in df_lookup.columns
-    ]
-
-    lookup = build_lookup(df_lookup)
 
     output = []
 
@@ -511,51 +502,42 @@ if "query_results" not in st.session_state:
     st.session_state.query_results = None
     st.session_state.query_excel = None
 
-tab1, tab2 = st.tabs(["Rate Sheet Generator", "File Format Guide"])
+
+@st.cache_data
+def load_backend_lookup():
+    if not os.path.exists(LOOKUP_PATH):
+        return None
+    df = pd.read_excel(LOOKUP_PATH)
+    df.columns = [str(c).strip().lower() for c in df.columns]
+    return build_lookup(df)
+
+
+lookup = load_backend_lookup()
+
+if lookup is None:
+    st.error(
+        "Institution lookup file not found. "
+        "Place institution_lookup.xlsx in the app folder and restart."
+    )
+
+tab1, tab2, tab3 = st.tabs(["Custom Query", "Rate Sheet Generator", "File Format Guide"])
 
 with tab1:
-    st.write("Upload your Master Rates and Institution Lookup files.")
-
-    master_file = st.file_uploader(
-        "Upload Master_Rates Excel file",
-        type=["xlsx"]
-    )
-
-    lookup_file = st.file_uploader(
-        "Upload Institution_Lookup Excel file",
-        type=["xlsx"]
-    )
-
-    if st.button("Generate Formatted Rate Sheet"):
-
-        if not master_file or not lookup_file:
-            st.error("Please upload both files.")
-
-        else:
-            output = generate_report(master_file, lookup_file)
-            excel_file = create_excel(output)
-
-            st.success("Formatted rate sheet generated.")
-
-            st.download_button(
-                label="Download Formatted Rate Sheet",
-                data=excel_file,
-                file_name="formatted_rate_sheet.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-
-    st.markdown("---")
-    st.subheader("Custom Query")
     st.write("Filter rates by term, credit rating status, and number of results.")
 
     query_source = st.radio(
         "Data source",
-        ["Master Rates + Lookup (uploaded above)", "Formatted Rate Sheet"],
+        ["Master Rates file", "Formatted Rate Sheet"],
         horizontal=True
     )
 
-    formatted_sheet_file = None
-    if query_source == "Formatted Rate Sheet":
+    if query_source == "Master Rates file":
+        query_master_file = st.file_uploader(
+            "Upload Master Rates Excel file",
+            type=["xlsx"],
+            key="query_master_uploader"
+        )
+    else:
         formatted_sheet_file = st.file_uploader(
             "Upload Formatted Rate Sheet",
             type=["xlsx"],
@@ -589,10 +571,10 @@ with tab1:
     if st.button("Run Query"):
         if not selected_terms:
             st.warning("Please select at least one term.")
+        elif query_source == "Master Rates file" and not query_master_file:
+            st.error("Please upload a Master Rates file.")
         elif query_source == "Formatted Rate Sheet" and not formatted_sheet_file:
-            st.error("Please upload a formatted rate sheet.")
-        elif query_source != "Formatted Rate Sheet" and (not master_file or not lookup_file):
-            st.error("Please upload both the Master Rates and Lookup files above.")
+            st.error("Please upload a Formatted Rate Sheet.")
         else:
             if query_source == "Formatted Rate Sheet":
                 results = query_from_sheet(
@@ -603,8 +585,8 @@ with tab1:
                 )
             else:
                 results = generate_custom_query(
-                    master_file,
-                    lookup_file,
+                    query_master_file,
+                    lookup,
                     selected_terms,
                     int(top_n),
                     credit_rated_only
@@ -635,24 +617,41 @@ with tab1:
         )
 
 with tab2:
-    st.subheader("Required File Formats")
-    st.write(
-        "Both files must be **.xlsx** Excel files. "
-        "Column names must match exactly (the app ignores capitalisation, but spelling must be correct)."
+    st.write("Upload your Master Rates file to generate the full formatted rate sheet.")
+
+    master_file = st.file_uploader(
+        "Upload Master Rates Excel file",
+        type=["xlsx"],
+        key="report_master_uploader"
     )
 
-    st.markdown("---")
+    if st.button("Generate Formatted Rate Sheet"):
+        if not master_file:
+            st.error("Please upload a Master Rates file.")
+        else:
+            output = generate_report(master_file, lookup)
+            excel_file = create_excel(output)
 
-    st.markdown("### Master Rates File")
+            st.success("Formatted rate sheet generated.")
+
+            st.download_button(
+                label="Download Formatted Rate Sheet",
+                data=excel_file,
+                file_name="formatted_rate_sheet.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+
+with tab3:
+    st.subheader("Master Rates File — Required Format")
     st.write(
-        "One row per institution. The first column is the institution name. "
-        "The **Available** column controls whether a row is included — only rows marked **available** are processed."
+        "The file must be **.xlsx**. Column names are case-insensitive. "
+        "One row per institution."
     )
 
     master_cols = pd.DataFrame([
-        {"Column Name": "Institution Name (1st column)", "Status": "Required", "Description": "Name of the institution. Must match the Lookup Name in the Lookup file.", "Example": "Royal Bank of Canada"},
-        {"Column Name": "available",                     "Status": "Required", "Description": "Set to 'available' to include the row. Any other value skips it.", "Example": "available"},
-        {"Column Name": "5 year fixed",                  "Status": "Optional", "Description": "Rate for 5 Year Fixed term.", "Example": "3.75% or 0.0375"},
+        {"Column Name": "Institution Name (1st column)", "Status": "Required", "Description": "Name of the institution.", "Example": "Royal Bank of Canada"},
+        {"Column Name": "available",                     "Status": "Required", "Description": "Set to 'available' to include the row. Any other value is skipped.", "Example": "available"},
+        {"Column Name": "5 year fixed",                  "Status": "Optional", "Description": "Rate for 5 Year Fixed term.", "Example": "3.75%"},
         {"Column Name": "4 year fixed",                  "Status": "Optional", "Description": "Rate for 4 Year Fixed term.", "Example": "3.60%"},
         {"Column Name": "3 year fixed",                  "Status": "Optional", "Description": "Rate for 3 Year Fixed term.", "Example": "3.50%"},
         {"Column Name": "2 year fixed",                  "Status": "Optional", "Description": "Rate for 2 Year Fixed term.", "Example": "3.40%"},
@@ -668,31 +667,7 @@ with tab2:
     ])
 
     st.dataframe(master_cols, width="stretch", hide_index=True)
-    st.caption("Rates can be entered as percentages (3.75%) or decimals (0.0375). Columns with no rate or a rate below 1% are ignored.")
-
-    st.markdown("---")
-
-    st.markdown("### Institution Lookup File")
-    st.write(
-        "One row per institution. This file controls display names, credit ratings, deposit insurance, and min/max amounts shown in the output."
-    )
-
-    lookup_cols = pd.DataFrame([
-        {"Column Name": "Lookup Name",       "Status": "Required", "Description": "Must match the institution name in the Master Rates file (case-insensitive).", "Example": "Royal Bank of Canada"},
-        {"Column Name": "Active",            "Status": "Required", "Description": "Set to 'Yes' to include. Any other value skips the row.", "Example": "Yes"},
-        {"Column Name": "Display Name",      "Status": "Optional", "Description": "The name shown in the output. Defaults to Lookup Name if blank.", "Example": "RBC"},
-        {"Column Name": "Short Term Rating", "Status": "Optional", "Description": "Credit rating used for terms under 1 year.", "Example": "R-1 (High)"},
-        {"Column Name": "Long Term Rating",  "Status": "Optional", "Description": "Credit rating used for terms 1 year and over.", "Example": "AA"},
-        {"Column Name": "Insurance",         "Status": "Optional", "Description": "Deposit insurance information shown alongside the rating.", "Example": "CDIC"},
-        {"Column Name": "Min Amount",        "Status": "Optional", "Description": "Minimum investment amount displayed in brackets after the name.", "Example": "$1,000"},
-        {"Column Name": "Max Amount",        "Status": "Optional", "Description": "Maximum investment amount displayed in brackets after the name.", "Example": "$500,000"},
-    ])
-
-    st.dataframe(lookup_cols, width="stretch", hide_index=True)
-    st.caption(
-        "If both Short Term Rating and Long Term Rating are blank, the institution will not appear when 'Credit rated only' is checked. "
-        "Insurance alone (e.g. CDIC) is not considered a credit rating."
-    )
+    st.caption("Rates can be entered as percentages (3.75%) or decimals (0.0375). Blank cells or rates below 1% are ignored.")
 
 st.markdown("---")
 st.caption(
