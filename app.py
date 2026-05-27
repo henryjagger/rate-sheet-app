@@ -5,7 +5,7 @@ from io import BytesIO
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
-LOOKUP_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "institution_lookup.xlsx")
+LOOKUP_PATH = "institution_lookup.xlsx"
 
 
 TERM_COLUMNS = [
