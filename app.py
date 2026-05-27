@@ -570,7 +570,7 @@ st.markdown("""
         color: #1A202C;
         font-family: 'Times New Roman', Times, serif;
         margin: 0;
-        font-size: 1.6rem;
+        font-size: 2.2rem;
         font-weight: 700;
     }
     .page-header p {
