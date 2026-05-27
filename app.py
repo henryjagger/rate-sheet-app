@@ -504,8 +504,7 @@ st.markdown("""
     header {visibility: hidden;}
 
     /* Times New Roman everywhere */
-    html, body, [class*="css"], p, div, span, label, input,
-    h1, h2, h3, h4, h5, h6, button, td, th, textarea, select {
+    html, body, [class*="css"] {
         font-family: 'Times New Roman', Times, serif !important;
     }
 
