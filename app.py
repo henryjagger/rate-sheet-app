@@ -620,7 +620,7 @@ with tab1:
         )
         df_display["Rate"] = df_display["Rate"].apply(lambda x: f"{x * 100:.2f}%")
 
-        st.dataframe(df_display, use_container_width=True, hide_index=True)
+        st.dataframe(df_display, width="stretch", hide_index=True)
 
         st.download_button(
             label="Download Custom Query as Excel",
@@ -645,24 +645,6 @@ with tab2:
     )
 
     master_cols = pd.DataFrame([
-        {"Column Name": "Institution Name", "Required", "Description": "Name of the institution. Must match the Lookup Name in the Institution Lookup file.", "Example": "Royal Bank of Canada"},
-        {"Column Name": "Available",        "Required", "Description": "Set to **available** to include the row. Any other value is skipped.", "Example": "available"},
-        {"Column Name": "5 year fixed",     "Optional", "Description": "Rate for the 5 Year Fixed term.", "Example": "3.75% or 0.0375"},
-        {"Column Name": "4 year fixed",     "Optional", "Description": "Rate for the 4 Year Fixed term.", "Example": "3.60%"},
-        {"Column Name": "3 year fixed",     "Optional", "Description": "Rate for the 3 Year Fixed term.", "Example": "3.50%"},
-        {"Column Name": "2 year fixed",     "Optional", "Description": "Rate for the 2 Year Fixed term.", "Example": "3.40%"},
-        {"Column Name": "18 month fixed",   "Optional", "Description": "Rate for the 18 Month Fixed term.", "Example": "3.30%"},
-        {"Column Name": "1 year fixed",     "Optional", "Description": "Rate for the 1 Year Fixed term.", "Example": "3.20%"},
-        {"Column Name": "270 days",         "Optional", "Description": "Rate for the 270 Day Fixed term.", "Example": "3.15%"},
-        {"Column Name": "180 days",         "Optional", "Description": "Rate for the 180 Day Fixed term.", "Example": "3.10%"},
-        {"Column Name": "90 days",          "Optional", "Description": "Rate for the 90 Day Fixed term.", "Example": "3.00%"},
-        {"Column Name": "60 days",          "Optional", "Description": "Rate for the 60 Day Fixed term.", "Example": "2.90%"},
-        {"Column Name": "30 days",          "Optional", "Description": "Rate for the 30 Day Fixed term.", "Example": "2.80%"},
-        {"Column Name": "cashable after 90 days", "Optional", "Description": "Rate for the 1 Year Cashable After 90 Days term.", "Example": "3.10%"},
-        {"Column Name": "cashable after 30 days", "Optional", "Description": "Rate for the 1 Year Cashable After 30 Days term.", "Example": "3.05%"},
-    ])
-
-    master_cols = pd.DataFrame([
         {"Column Name": "Institution Name (1st column)", "Status": "Required", "Description": "Name of the institution. Must match the Lookup Name in the Lookup file.", "Example": "Royal Bank of Canada"},
         {"Column Name": "available",                     "Status": "Required", "Description": "Set to 'available' to include the row. Any other value skips it.", "Example": "available"},
         {"Column Name": "5 year fixed",                  "Status": "Optional", "Description": "Rate for 5 Year Fixed term.", "Example": "3.75% or 0.0375"},
@@ -680,7 +662,7 @@ with tab2:
         {"Column Name": "cashable after 30 days",        "Status": "Optional", "Description": "Rate for 1 Year Cashable After 30 Days.", "Example": "3.05%"},
     ])
 
-    st.dataframe(master_cols, use_container_width=True, hide_index=True)
+    st.dataframe(master_cols, width="stretch", hide_index=True)
     st.caption("Rates can be entered as percentages (3.75%) or decimals (0.0375). Columns with no rate or a rate below 1% are ignored.")
 
     st.markdown("---")
@@ -701,7 +683,7 @@ with tab2:
         {"Column Name": "Max Amount",        "Status": "Optional", "Description": "Maximum investment amount displayed in brackets after the name.", "Example": "$500,000"},
     ])
 
-    st.dataframe(lookup_cols, use_container_width=True, hide_index=True)
+    st.dataframe(lookup_cols, width="stretch", hide_index=True)
     st.caption(
         "If both Short Term Rating and Long Term Rating are blank, the institution will not appear when 'Credit rated only' is checked. "
         "Insurance alone (e.g. CDIC) is not considered a credit rating."
