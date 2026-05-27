@@ -395,6 +395,14 @@ def create_excel(output):
                 size=10
             )
 
+    # Fill blank data cells with placeholder
+    cannot_source_font = Font(name="Arial", size=10, bold=True, color="8B0000")
+    for row in ws.iter_rows(min_row=2):
+        for cell in row:
+            if cell.value is None or str(cell.value).strip() == "":
+                cell.value = "* CANNOT SOURCE, ENTER MANUALLY *"
+                cell.font = cannot_source_font
+
     # Apply header styles after the general loop so they are not overwritten
     for cell in ws[1]:
         cell.fill = header_fill
