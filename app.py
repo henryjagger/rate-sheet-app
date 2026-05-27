@@ -496,6 +496,20 @@ st.set_page_config(
     layout="wide"
 )
 
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+if not st.session_state.authenticated:
+    st.title("Rate Sheet Generator")
+    password = st.text_input("Enter password", type="password")
+    if st.button("Login"):
+        if password == "Locarno":
+            st.session_state.authenticated = True
+            st.rerun()
+        else:
+            st.error("Incorrect password.")
+    st.stop()
+
 st.title("Rate Sheet Generator")
 
 if "query_results" not in st.session_state:
