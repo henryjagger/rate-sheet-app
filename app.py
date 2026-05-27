@@ -503,64 +503,81 @@ st.markdown("""
     footer {visibility: hidden;}
     header {visibility: hidden;}
 
+    /* Times New Roman everywhere */
+    html, body, [class*="css"], p, div, span, label, input,
+    h1, h2, h3, h4, h5, h6, button, td, th, textarea, select {
+        font-family: 'Times New Roman', Times, serif !important;
+    }
+
+    /* Tighter page padding */
+    .block-container {
+        padding-top: 1.5rem !important;
+        padding-bottom: 1rem !important;
+    }
+
     /* Buttons */
     .stButton > button {
-        background-color: #2C5282;
+        background-color: #1A3A5C;
         color: white;
         border: none;
         border-radius: 6px;
-        padding: 0.5rem 1.5rem;
-        font-weight: 500;
+        padding: 0.4rem 1.5rem;
+        font-weight: 600;
+        font-family: 'Times New Roman', Times, serif !important;
         transition: background-color 0.2s;
     }
     .stButton > button:hover {
-        background-color: #2A4A7F;
+        background-color: #142E4A;
         color: white;
     }
 
     /* Login card */
     .login-card {
-        background: white;
-        border-radius: 12px;
-        padding: 3rem 2.5rem 2.5rem 2.5rem;
-        box-shadow: 0 2px 16px rgba(0,0,0,0.08);
-        margin-top: 3rem;
+        background: #FAF7F2;
+        border-radius: 10px;
+        padding: 2rem 2rem 1.5rem 2rem;
+        box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+        margin-top: 2rem;
     }
     .login-title {
         color: #1A202C;
-        font-size: 1.6rem;
+        font-family: 'Times New Roman', Times, serif;
+        font-size: 1.5rem;
         font-weight: 700;
-        margin-bottom: 0.3rem;
+        margin-bottom: 0.2rem;
     }
     .login-sub {
         color: #718096;
-        font-size: 0.9rem;
-        margin-bottom: 1.75rem;
+        font-family: 'Times New Roman', Times, serif;
+        font-size: 0.88rem;
+        margin-bottom: 1.25rem;
     }
 
     /* Page header */
     .page-header {
-        border-bottom: 2px solid #E2E8F0;
-        padding-bottom: 1rem;
-        margin-bottom: 1.5rem;
+        border-bottom: 2px solid #D9D0C4;
+        padding-bottom: 0.6rem;
+        margin-bottom: 1rem;
     }
     .page-header h1 {
         color: #1A202C;
+        font-family: 'Times New Roman', Times, serif;
         margin: 0;
-        font-size: 1.75rem;
+        font-size: 1.6rem;
         font-weight: 700;
     }
     .page-header p {
         color: #718096;
-        margin: 0.2rem 0 0 0;
-        font-size: 0.9rem;
+        font-family: 'Times New Roman', Times, serif;
+        margin: 0.15rem 0 0 0;
+        font-size: 0.88rem;
     }
 
     /* Tabs */
     .stTabs [data-baseweb="tab"][aria-selected="true"] {
-        color: #2C5282;
-        font-weight: 600;
-        border-bottom-color: #2C5282;
+        color: #1A3A5C;
+        font-weight: 700;
+        border-bottom-color: #1A3A5C;
     }
 </style>
 """, unsafe_allow_html=True)
