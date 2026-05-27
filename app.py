@@ -1,11 +1,59 @@
 import os
+import json
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 from io import BytesIO
+from datetime import datetime
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
 LOOKUP_PATH = "institution_lookup.xlsx"
+PASSWORDS_PATH = "passwords.json"
+STATS_PATH = "data/stats.json"
+
+
+def load_passwords():
+    try:
+        return {
+            "app_password": st.secrets["app_password"],
+            "admin_password": st.secrets["admin_password"],
+        }
+    except Exception:
+        if os.path.exists(PASSWORDS_PATH):
+            with open(PASSWORDS_PATH) as f:
+                return json.load(f)
+    return {"app_password": "Locarno", "admin_password": "Admin1234"}
+
+
+def save_passwords(app_pw, admin_pw):
+    with open(PASSWORDS_PATH, "w") as f:
+        json.dump({"app_password": app_pw, "admin_password": admin_pw}, f)
+
+
+def load_stats():
+    if os.path.exists(STATS_PATH):
+        with open(STATS_PATH) as f:
+            return json.load(f)
+    return {"total_rate_sheets": 0, "total_queries": 0, "events": []}
+
+
+def save_stats(stats):
+    os.makedirs(os.path.dirname(STATS_PATH), exist_ok=True)
+    with open(STATS_PATH, "w") as f:
+        json.dump(stats, f)
+
+
+def log_event(event_type):
+    stats = load_stats()
+    if event_type == "rate_sheet":
+        stats["total_rate_sheets"] = stats.get("total_rate_sheets", 0) + 1
+    else:
+        stats["total_queries"] = stats.get("total_queries", 0) + 1
+    events = stats.get("events", [])
+    events.append({"Type": event_type, "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")})
+    stats["events"] = events[-200:]
+    save_stats(stats)
 
 
 TERM_COLUMNS = [
@@ -591,6 +639,8 @@ st.markdown("""
 
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
+if "admin_authenticated" not in st.session_state:
+    st.session_state.admin_authenticated = False
 
 if not st.session_state.authenticated:
     _, col, _ = st.columns([1, 1.2, 1])
@@ -604,7 +654,7 @@ if not st.session_state.authenticated:
         password = st.text_input("Password", type="password", label_visibility="collapsed",
                                  placeholder="Password")
         if st.button("Enter", use_container_width=True):
-            if password == "Locarno":
+            if password == load_passwords()["app_password"]:
                 st.session_state.authenticated = True
                 st.rerun()
             else:
@@ -641,7 +691,7 @@ if lookup is None:
         "Place institution_lookup.xlsx in the app folder and restart."
     )
 
-tab1, tab2, tab3 = st.tabs(["Custom Query", "Rate Sheet Generator", "File Format Guide"])
+tab1, tab2, tab3, tab4 = st.tabs(["Custom Query", "Rate Sheet Generator", "File Format Guide", "Admin"])
 
 with tab1:
     st.write("Filter rates by term, credit rating status, and number of results.")
@@ -704,6 +754,7 @@ with tab1:
                     int(top_n),
                     credit_rated_only
                 )
+                log_event("sheet_query")
             else:
                 results = generate_custom_query(
                     query_master_file,
@@ -712,6 +763,7 @@ with tab1:
                     int(top_n),
                     credit_rated_only
                 )
+                log_event("master_query")
 
             if not results:
                 st.session_state.query_results = None
@@ -730,12 +782,37 @@ with tab1:
 
         st.dataframe(df_display, width="stretch", hide_index=True)
 
-        st.download_button(
-            label="Download Custom Query as Excel",
-            data=st.session_state.query_excel,
-            file_name="custom_query.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        btn_col1, btn_col2 = st.columns([1, 1])
+
+        with btn_col1:
+            st.download_button(
+                label="Download as Excel",
+                data=st.session_state.query_excel,
+                file_name="custom_query.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+
+        with btn_col2:
+            tsv = df_display.to_csv(sep="\t", index=False)
+            tsv_js = tsv.replace("\\", "\\\\").replace("`", "\\`")
+            components.html(f"""
+            <button onclick="
+                navigator.clipboard.writeText(`{tsv_js}`)
+                .then(() => {{ this.textContent = '✓ Copied!'; setTimeout(() => this.textContent = 'Copy to Clipboard', 2000); }})
+                .catch(() => {{ this.textContent = 'Copy failed — try again'; }})
+            " style="
+                background-color: #1A3A5C;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 6px 16px;
+                font-size: 14px;
+                font-family: 'Times New Roman', Times, serif;
+                cursor: pointer;
+                height: 38px;
+                width: 100%;
+            ">Copy to Clipboard</button>
+            """, height=45)
 
 with tab2:
     st.write("Upload your Master Rates file to generate the full formatted rate sheet.")
@@ -752,6 +829,7 @@ with tab2:
         else:
             output = generate_report(master_file, lookup)
             excel_file = create_excel(output)
+            log_event("rate_sheet")
 
             st.success("Formatted rate sheet generated.")
 
@@ -795,6 +873,77 @@ with tab3:
 
     st.dataframe(master_cols.set_index("Column Name").T, width="stretch")
     st.caption("Rates can be entered as percentages (3.75%) or decimals (0.0375). Blank cells or rates below 1% are ignored.")
+
+with tab4:
+    if not st.session_state.admin_authenticated:
+        _, acol, _ = st.columns([1, 1.2, 1])
+        with acol:
+            st.subheader("Admin Access")
+            admin_pw_input = st.text_input("Admin password", type="password", key="admin_pw_input")
+            if st.button("Enter", key="admin_login"):
+                if admin_pw_input == load_passwords()["admin_password"]:
+                    st.session_state.admin_authenticated = True
+                    st.rerun()
+                else:
+                    st.error("Incorrect admin password.")
+    else:
+        st.subheader("Admin Panel")
+
+        if st.button("Log Out of Admin", key="admin_logout"):
+            st.session_state.admin_authenticated = False
+            st.rerun()
+
+        st.markdown("---")
+        st.markdown("#### Change Passwords")
+        pc1, pc2 = st.columns(2)
+        with pc1:
+            new_app_pw = st.text_input("New app password", type="password", key="new_app_pw")
+        with pc2:
+            new_admin_pw = st.text_input("New admin password", type="password", key="new_admin_pw")
+        if st.button("Save Passwords"):
+            if not new_app_pw and not new_admin_pw:
+                st.warning("Enter at least one new password.")
+            else:
+                current = load_passwords()
+                save_passwords(
+                    new_app_pw if new_app_pw else current["app_password"],
+                    new_admin_pw if new_admin_pw else current["admin_password"]
+                )
+                st.success("Passwords updated for this session. To make permanent on Streamlit Cloud, also update secrets in the dashboard.")
+
+        st.markdown("---")
+        st.markdown("#### Update Institution Lookup File")
+        new_lookup = st.file_uploader("Upload new institution_lookup.xlsx", type=["xlsx"], key="admin_lookup")
+        if st.button("Save Lookup File"):
+            if not new_lookup:
+                st.warning("Please upload a file first.")
+            else:
+                with open(LOOKUP_PATH, "wb") as f:
+                    f.write(new_lookup.read())
+                st.cache_data.clear()
+                st.success("Lookup file updated. To make permanent, push the new file to GitHub.")
+
+        st.markdown("---")
+        st.markdown("#### Usage Statistics")
+        stats = load_stats()
+
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Rate Sheets Generated", stats.get("total_rate_sheets", 0))
+        m2.metric("Custom Queries Run", stats.get("total_queries", 0))
+        m3.metric("Total Actions", stats.get("total_rate_sheets", 0) + stats.get("total_queries", 0))
+
+        events = stats.get("events", [])
+        if events:
+            st.markdown("**Recent Activity**")
+            df_events = pd.DataFrame(events[::-1][:50])
+            df_events["Type"] = df_events["Type"].map({
+                "rate_sheet":   "Rate Sheet Generated",
+                "master_query": "Custom Query — Master File",
+                "sheet_query":  "Custom Query — Formatted Sheet",
+            }).fillna(df_events["Type"])
+            st.dataframe(df_events, width="stretch", hide_index=True)
+        else:
+            st.info("No activity recorded yet.")
 
 st.markdown("---")
 st.caption(
