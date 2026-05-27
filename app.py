@@ -645,25 +645,31 @@ with tab3:
     st.subheader("Master Rates File — Required Format")
     st.write(
         "The file must be **.xlsx**. Column names are case-insensitive. "
-        "One row per institution."
+        "One row per institution. Columns marked **Used** are read by the app; others are accepted but ignored."
     )
 
     master_cols = pd.DataFrame([
-        {"Column Name": "Institution Name (1st column)", "Status": "Required", "Description": "Name of the institution.", "Example": "Royal Bank of Canada"},
-        {"Column Name": "available",                     "Status": "Required", "Description": "Set to 'available' to include the row. Any other value is skipped.", "Example": "available"},
-        {"Column Name": "5 year fixed",                  "Status": "Optional", "Description": "Rate for 5 Year Fixed term.", "Example": "3.75%"},
-        {"Column Name": "4 year fixed",                  "Status": "Optional", "Description": "Rate for 4 Year Fixed term.", "Example": "3.60%"},
-        {"Column Name": "3 year fixed",                  "Status": "Optional", "Description": "Rate for 3 Year Fixed term.", "Example": "3.50%"},
-        {"Column Name": "2 year fixed",                  "Status": "Optional", "Description": "Rate for 2 Year Fixed term.", "Example": "3.40%"},
-        {"Column Name": "18 month fixed",                "Status": "Optional", "Description": "Rate for 18 Month Fixed term.", "Example": "3.30%"},
-        {"Column Name": "1 year fixed",                  "Status": "Optional", "Description": "Rate for 1 Year Fixed term.", "Example": "3.20%"},
-        {"Column Name": "270 days",                      "Status": "Optional", "Description": "Rate for 270 Day Fixed term.", "Example": "3.15%"},
-        {"Column Name": "180 days",                      "Status": "Optional", "Description": "Rate for 180 Day Fixed term.", "Example": "3.10%"},
-        {"Column Name": "90 days",                       "Status": "Optional", "Description": "Rate for 90 Day Fixed term.", "Example": "3.00%"},
-        {"Column Name": "60 days",                       "Status": "Optional", "Description": "Rate for 60 Day Fixed term.", "Example": "2.90%"},
-        {"Column Name": "30 days",                       "Status": "Optional", "Description": "Rate for 30 Day Fixed term.", "Example": "2.80%"},
-        {"Column Name": "cashable after 90 days",        "Status": "Optional", "Description": "Rate for 1 Year Cashable After 90 Days.", "Example": "3.10%"},
-        {"Column Name": "cashable after 30 days",        "Status": "Optional", "Description": "Rate for 1 Year Cashable After 30 Days.", "Example": "3.05%"},
+        {"Column Name": "Issuer",                                  "Used by App": "Yes", "Description": "Name of the institution (must be in column A).", "Example": "Royal Bank of Canada"},
+        {"Column Name": "Insurance/Credit Rating Short Term",      "Used by App": "No",  "Description": "For reference only — ratings are managed in the backend lookup.", "Example": "R-1 (High)"},
+        {"Column Name": "Insurance/Credit Rating Long Term",       "Used by App": "No",  "Description": "For reference only — ratings are managed in the backend lookup.", "Example": "AA"},
+        {"Column Name": "Take FI money?",                          "Used by App": "No",  "Description": "Internal reference field.", "Example": "Yes"},
+        {"Column Name": "Available",                               "Used by App": "Yes", "Description": "Must say 'available' for the row to be included. Any other value skips it.", "Example": "available"},
+        {"Column Name": "Province",                                "Used by App": "No",  "Description": "Internal reference field.", "Example": "ON"},
+        {"Column Name": "Offers USD",                              "Used by App": "No",  "Description": "Internal reference field.", "Example": "Yes"},
+        {"Column Name": "As of Date",                              "Used by App": "No",  "Description": "Date the rates were last updated.", "Example": "2024-01-15"},
+        {"Column Name": "Cashable After 30 Days",                  "Used by App": "Yes", "Description": "Rate for 1 Year Cashable After 30 Days term.", "Example": "3.05%"},
+        {"Column Name": "Cashable After 90 Days",                  "Used by App": "Yes", "Description": "Rate for 1 Year Cashable After 90 Days term.", "Example": "3.10%"},
+        {"Column Name": "30 Days",                                 "Used by App": "Yes", "Description": "Rate for 30 Day Fixed term.", "Example": "2.80%"},
+        {"Column Name": "60 Days",                                 "Used by App": "Yes", "Description": "Rate for 60 Day Fixed term.", "Example": "2.90%"},
+        {"Column Name": "90 Days",                                 "Used by App": "Yes", "Description": "Rate for 90 Day Fixed term.", "Example": "3.00%"},
+        {"Column Name": "180 Days",                                "Used by App": "Yes", "Description": "Rate for 180 Day Fixed term.", "Example": "3.10%"},
+        {"Column Name": "270 Days",                                "Used by App": "Yes", "Description": "Rate for 270 Day Fixed term.", "Example": "3.15%"},
+        {"Column Name": "1 Year Fixed",                            "Used by App": "Yes", "Description": "Rate for 1 Year Fixed term.", "Example": "3.20%"},
+        {"Column Name": "18 Month Fixed",                          "Used by App": "Yes", "Description": "Rate for 18 Month Fixed term.", "Example": "3.30%"},
+        {"Column Name": "2 Year Fixed",                            "Used by App": "Yes", "Description": "Rate for 2 Year Fixed term.", "Example": "3.40%"},
+        {"Column Name": "3 Year Fixed",                            "Used by App": "Yes", "Description": "Rate for 3 Year Fixed term.", "Example": "3.50%"},
+        {"Column Name": "4 Year Fixed",                            "Used by App": "Yes", "Description": "Rate for 4 Year Fixed term.", "Example": "3.60%"},
+        {"Column Name": "5 Year Fixed",                            "Used by App": "Yes", "Description": "Rate for 5 Year Fixed term.", "Example": "3.75%"},
     ])
 
     st.dataframe(master_cols, width="stretch", hide_index=True)
