@@ -182,6 +182,11 @@ def is_credit_rating_string(s):
 def parse_formatted_sheet(file):
     df = pd.read_excel(file)
     df.columns = [str(c).strip() for c in df.columns]
+
+    # Merged Term cells read back as NaN for all but the first row — forward-fill restores them
+    if "Term" in df.columns:
+        df["Term"] = df["Term"].ffill()
+
     rows = []
 
     for _, row in df.iterrows():
