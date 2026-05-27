@@ -502,79 +502,64 @@ st.markdown("""
     footer {visibility: hidden;}
     header {visibility: hidden;}
 
-    /* Force Times New Roman everywhere */
-    html, body, [class*="css"], p, div, span, label, input,
-    h1, h2, h3, h4, h5, h6, button, td, th {
-        font-family: 'Times New Roman', Times, serif !important;
-    }
-
     /* Buttons */
     .stButton > button {
-        background-color: #5C3317;
-        color: #F5EDE5;
+        background-color: #2C5282;
+        color: white;
         border: none;
         border-radius: 6px;
-        padding: 0.5rem 2rem;
-        font-weight: 600;
-        font-family: 'Times New Roman', Times, serif !important;
-        letter-spacing: 0.4px;
+        padding: 0.5rem 1.5rem;
+        font-weight: 500;
         transition: background-color 0.2s;
     }
     .stButton > button:hover {
-        background-color: #7A4522;
-        color: #F5EDE5;
+        background-color: #2A4A7F;
+        color: white;
     }
 
     /* Login card */
     .login-card {
-        background: #D9C8BC;
+        background: white;
         border-radius: 12px;
-        padding: 2.5rem 2.5rem 2rem 2.5rem;
-        box-shadow: 0 4px 24px rgba(44,26,16,0.18);
-        margin-top: 2rem;
+        padding: 3rem 2.5rem 2.5rem 2.5rem;
+        box-shadow: 0 2px 16px rgba(0,0,0,0.08);
+        margin-top: 3rem;
     }
     .login-title {
-        color: #2C1A10;
-        font-family: 'Times New Roman', Times, serif;
-        font-size: 1.8rem;
+        color: #1A202C;
+        font-size: 1.6rem;
         font-weight: 700;
-        margin-bottom: 0.25rem;
+        margin-bottom: 0.3rem;
     }
     .login-sub {
-        color: #5C3D2E;
-        font-family: 'Times New Roman', Times, serif;
-        font-size: 0.95rem;
-        margin-bottom: 1.5rem;
+        color: #718096;
+        font-size: 0.9rem;
+        margin-bottom: 1.75rem;
     }
 
-    /* Page header banner */
+    /* Page header */
     .page-header {
-        background: linear-gradient(135deg, #3D1F0A 0%, #5C3317 100%);
-        color: #F5EDE5;
-        padding: 1.5rem 2rem;
-        border-radius: 10px;
+        border-bottom: 2px solid #E2E8F0;
+        padding-bottom: 1rem;
         margin-bottom: 1.5rem;
     }
     .page-header h1 {
-        color: #F5EDE5;
-        font-family: 'Times New Roman', Times, serif;
+        color: #1A202C;
         margin: 0;
-        font-size: 1.8rem;
+        font-size: 1.75rem;
         font-weight: 700;
-        letter-spacing: 0.3px;
     }
     .page-header p {
-        color: #D9C8BC;
-        font-family: 'Times New Roman', Times, serif;
-        margin: 0.25rem 0 0 0;
+        color: #718096;
+        margin: 0.2rem 0 0 0;
         font-size: 0.9rem;
     }
 
-    /* Active tab */
+    /* Tabs */
     .stTabs [data-baseweb="tab"][aria-selected="true"] {
-        color: #3D1F0A;
-        font-weight: 700;
-        border-bottom-color: #5C3317;
+        color: #2C5282;
+        font-weight: 600;
+        border-bottom-color: #2C5282;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -607,6 +592,7 @@ st.markdown("""
     <p>Generate and query institutional rate sheets</p>
 </div>
 """, unsafe_allow_html=True)
+
 
 if "query_results" not in st.session_state:
     st.session_state.query_results = None
