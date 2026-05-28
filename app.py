@@ -9,6 +9,41 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
 LOOKUP_PATH = "institution_lookup.xlsx"
+
+INSURANCE_URLS = {
+    "CDIC":  "https://www.cdic.ca",
+    "DICO":  "https://www.fsrao.ca",
+    "FSRA":  "https://www.fsrao.ca",
+    "DGCM":  "https://www.dgcm.ca",
+    "CUDIC": "https://www.cudic.gov.bc.ca",
+    "CUDGM": "https://www.dgcm.ca",
+    "CUIM":  "https://www.cuim.ca",
+    "DEPOSIT GUARANTEE": "https://www.dgcm.ca",
+}
+
+
+def find_insurance_url(text):
+    upper = str(text).upper()
+    for provider, url in INSURANCE_URLS.items():
+        if provider in upper:
+            return url
+    return None
+
+
+def linkify_insurance_html(text):
+    """Wrap the insurance portion of a rating/insurance string in an <a> tag."""
+    if not text or text == "* CANNOT SOURCE, ENTER MANUALLY *":
+        return text
+    if " – " in text:
+        rating, insurance = text.split(" – ", 1)
+        url = find_insurance_url(insurance)
+        if url:
+            return f"{rating} – <a href='{url}' style='color:#0563C1;text-decoration:underline;'>{insurance}</a>"
+        return text
+    url = find_insurance_url(text)
+    if url:
+        return f"<a href='{url}' style='color:#0563C1;text-decoration:underline;'>{text}</a>"
+    return text
 PASSWORDS_PATH = "passwords.json"
 STATS_PATH = "data/stats.json"
 
@@ -465,6 +500,13 @@ def create_excel(output):
         cell.number_format = "0.00%"
         cell.font = red_font
 
+    # Hyperlink insurance providers in column B
+    for cell in ws["B"][1:]:
+        if cell.value and cell.value != "* CANNOT SOURCE, ENTER MANUALLY *":
+            url = find_insurance_url(str(cell.value))
+            if url:
+                cell.hyperlink = url
+
     ws.column_dimensions["A"].width = 35
     ws.column_dimensions["B"].width = 55
     ws.column_dimensions["C"].width = 30
@@ -810,6 +852,9 @@ with tab1:
                 for col, val in zip(headers, row):
                     if col == "Rate":
                         cells += f"<td style='{td_rate_style}'><font face='Calibri' color='#C00000'>{val}</font></td>"
+                    elif col == "Credit Rating & Guarantee":
+                        linked = linkify_insurance_html(str(val))
+                        cells += f"<td style='{td_style}'><font face='Calibri'>{linked}</font></td>"
                     else:
                         cells += f"<td style='{td_style}'><font face='Calibri'>{val}</font></td>"
                 data_rows += f"<tr>{cells}</tr>"
