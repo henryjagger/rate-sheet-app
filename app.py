@@ -500,13 +500,14 @@ def create_excel(output):
         cell.number_format = "0.00%"
         cell.font = red_font
 
-    # Hyperlink insurance providers in column B — cell value and styling stay unchanged
+    # Hyperlink insurance providers in column B
     for cell in ws["B"][1:]:
         if not cell.value or cell.value == "* CANNOT SOURCE, ENTER MANUALLY *":
             continue
         url = find_insurance_url(str(cell.value))
         if url:
             cell.hyperlink = url
+            cell.font = Font(name="Arial", size=10, color="0563C1", underline="single")
 
     ws.column_dimensions["A"].width = 35
     ws.column_dimensions["B"].width = 55
