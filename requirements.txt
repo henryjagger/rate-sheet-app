@@ -1,3 +1,4 @@
-streamlit
+flask
+gunicorn
 pandas
 openpyxl

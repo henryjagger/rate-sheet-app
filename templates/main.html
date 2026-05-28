@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rate Sheet Generator</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+<!-- ── Navigation ─────────────────────────────────────── -->
+<nav class="nav">
+  <div class="nav-inner">
+    <div class="nav-brand">
+      <span class="nav-brand-bar"></span>
+      <span class="nav-brand-name">Rate Sheet Generator</span>
+    </div>
+    <div class="nav-tabs">
+      <button class="nav-tab {% if active_tab == 'query'    %}active{% endif %}"
+              onclick="showTab('query')">Custom Query</button>
+      <button class="nav-tab {% if active_tab == 'generate' %}active{% endif %}"
+              onclick="showTab('generate')">Rate Sheet</button>
+      <button class="nav-tab {% if active_tab == 'guide'    %}active{% endif %}"
+              onclick="showTab('guide')">File Guide</button>
+      <button class="nav-tab {% if active_tab == 'admin'    %}active{% endif %}"
+              onclick="showTab('admin')">Admin</button>
+    </div>
+    <a href="{{ url_for('logout') }}" class="nav-logout">Sign Out</a>
+  </div>
+</nav>
+
+<!-- ── Page header ────────────────────────────────────── -->
+<header class="page-header">
+  <div class="container">
+    <p class="eyebrow">Fixed Income — Capital Markets</p>
+    <h1>Rate Sheet Generator</h1>
+    <p class="header-sub">Generate and query institutional GIC rate sheets</p>
+  </div>
+</header>
+
+<!-- ── Main content ───────────────────────────────────── -->
+<main class="container">
+
+  <!-- ════════════════ CUSTOM QUERY ════════════════ -->
+  <section id="tab-query" class="tab-panel {% if active_tab == 'query' %}active{% endif %}">
+    <div class="section-header">
+      <span class="section-eyebrow">Custom Query</span>
+      <p class="section-desc">Filter by term, credit rating status, and number of results.</p>
+    </div>
+
+    <form method="POST" action="{{ url_for('query') }}" enctype="multipart/form-data" class="form-card">
+
+      <!-- Source toggle -->
+      <div class="field-group">
+        <label class="field-label">Data Source</label>
+        <div class="radio-row">
+          <label class="radio-option">
+            <input type="radio" name="source" value="master"
+                   {% if (prev_source|default('master')) == 'master' %}checked{% endif %}
+                   onchange="toggleSource(this.value)">
+            <span>Master Rates file</span>
+          </label>
+          <label class="radio-option">
+            <input type="radio" name="source" value="formatted"
+                   {% if prev_source == 'formatted' %}checked{% endif %}
+                   onchange="toggleSource(this.value)">
+            <span>Formatted Rate Sheet</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- File upload -->
+      <div id="upload-master" class="field-group
+           {% if prev_source == 'formatted' %}hidden{% endif %}">
+        <label class="field-label">Master Rates File</label>
+        <input type="file" name="master_file" accept=".xlsx" class="file-input">
+      </div>
+      <div id="upload-formatted" class="field-group
+           {% if (prev_source|default('master')) != 'formatted' %}hidden{% endif %}">
+        <label class="field-label">Formatted Rate Sheet</label>
+        <input type="file" name="formatted_file" accept=".xlsx" class="file-input">
+      </div>
+
+      <!-- Terms -->
+      <div class="field-group">
+        <label class="field-label">Select Terms</label>
+        <div class="checkbox-grid">
+          {% for t in term_options %}
+          <label class="check-option">
+            <input type="checkbox" name="terms" value="{{ t }}"
+                   {% if t in (prev_terms|default([])) %}checked{% endif %}>
+            <span>{{ t }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- Top N + Credit rated -->
+      <div class="field-row">
+        <div class="field-group half">
+          <label class="field-label">Top N rates per term</label>
+          <input type="number" name="top_n" min="1" max="20"
+                 value="{{ prev_top_n|default(3) }}" class="input">
+        </div>
+        <div class="field-group half align-end">
+          <label class="check-option">
+            <input type="checkbox" name="credit_rated_only"
+                   {% if prev_credit %}checked{% endif %}>
+            <span>Credit-rated institutions only</span>
+          </label>
+        </div>
+      </div>
+
+      {% if query_error %}
+      <div class="alert alert-error">{{ query_error }}</div>
+      {% endif %}
+
+      <button type="submit" class="btn btn-primary">Run Query</button>
+    </form>
+
+    <!-- Results -->
+    {% if query_results %}
+    <div class="results-block">
+      <div class="results-header">
+        <span class="section-eyebrow">Results</span>
+        <div class="results-actions">
+          <a href="{{ url_for('download_query') }}" class="btn btn-outline btn-sm">
+            Download Excel
+          </a>
+          <button class="btn btn-outline btn-sm" id="copy-btn" onclick="copyTable()">
+            Copy to Clipboard
+          </button>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table class="data-table" id="results-table">
+          <thead>
+            <tr>
+              {% for h in query_headers %}
+              <th>{{ h }}</th>
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in query_results %}
+            <tr>
+              {% for cell in row %}
+                {% if cell.type == 'term' %}
+                  <td rowspan="{{ cell.span }}" class="cell-term">{{ cell.val }}</td>
+                {% elif cell.type == 'rate' %}
+                  <td class="cell-rate">{{ cell.val }}</td>
+                {% elif cell.type == 'rating' %}
+                  <td class="cell-rating">{{ cell.val|safe }}</td>
+                {% else %}
+                  <td>{{ cell.val }}</td>
+                {% endif %}
+              {% endfor %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+  </section>
+
+  <!-- ════════════════ RATE SHEET GENERATOR ════════════════ -->
+  <section id="tab-generate" class="tab-panel {% if active_tab == 'generate' %}active{% endif %}">
+    <div class="section-header">
+      <span class="section-eyebrow">Rate Sheet Generator</span>
+      <p class="section-desc">Upload your Master Rates file to generate the full formatted rate sheet.</p>
+    </div>
+
+    <form method="POST" action="{{ url_for('generate') }}" enctype="multipart/form-data" class="form-card">
+      <div class="field-group">
+        <label class="field-label">Master Rates File</label>
+        <input type="file" name="master_file" accept=".xlsx" class="file-input">
+      </div>
+      {% if gen_error %}
+      <div class="alert alert-error">{{ gen_error }}</div>
+      {% endif %}
+      <button type="submit" class="btn btn-primary">Generate &amp; Download</button>
+    </form>
+  </section>
+
+  <!-- ════════════════ FILE FORMAT GUIDE ════════════════ -->
+  <section id="tab-guide" class="tab-panel {% if active_tab == 'guide' %}active{% endif %}">
+    <div class="section-header">
+      <span class="section-eyebrow">File Format Guide</span>
+      <p class="section-desc">
+        The Master Rates file must be <strong>.xlsx</strong>. Column names are case-insensitive.
+        One row per institution. Columns marked <strong>Used</strong> are read by the app.
+      </p>
+    </div>
+
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Column Name</th>
+            <th>Used by App</th>
+            <th>Description</th>
+            <th>Example</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% set guide_rows = [
+            ("Issuer",                                 "Yes", "Institution name (column A). Must match lookup file.",         "Royal Bank of Canada"),
+            ("Insurance/Credit Rating Short Term",     "No",  "Reference only — ratings managed in backend lookup.",         "R-1 (High)"),
+            ("Insurance/Credit Rating Long Term",      "No",  "Reference only — ratings managed in backend lookup.",         "AA"),
+            ("Take FI money?",                         "No",  "Internal reference field.",                                   "Yes"),
+            ("Available",                              "Yes", "Must say 'available' for row to be included.",                "available"),
+            ("Province",                               "No",  "Internal reference field.",                                   "ON"),
+            ("Offers USD",                             "No",  "Internal reference field.",                                   "Yes"),
+            ("As of Date",                             "No",  "Date the rates were last updated.",                           "2024-01-15"),
+            ("Cashable After 30 Days",                 "Yes", "Rate for 1 Year Cashable After 30 Days term.",                "3.05%"),
+            ("Cashable After 90 Days",                 "Yes", "Rate for 1 Year Cashable After 90 Days term.",                "3.10%"),
+            ("30 Days",                                "Yes", "Rate for 30 Day Fixed term.",                                 "2.80%"),
+            ("60 Days",                                "Yes", "Rate for 60 Day Fixed term.",                                 "2.90%"),
+            ("90 Days",                                "Yes", "Rate for 90 Day Fixed term.",                                 "3.00%"),
+            ("180 Days",                               "Yes", "Rate for 180 Day Fixed term.",                                "3.10%"),
+            ("270 Days",                               "Yes", "Rate for 270 Day Fixed term.",                                "3.15%"),
+            ("1 Year Fixed",                           "Yes", "Rate for 1 Year Fixed term.",                                 "3.20%"),
+            ("18 Month Fixed",                         "Yes", "Rate for 18 Month Fixed term.",                               "3.30%"),
+            ("2 Year Fixed",                           "Yes", "Rate for 2 Year Fixed term.",                                 "3.40%"),
+            ("3 Year Fixed",                           "Yes", "Rate for 3 Year Fixed term.",                                 "3.50%"),
+            ("4 Year Fixed",                           "Yes", "Rate for 4 Year Fixed term.",                                 "3.60%"),
+            ("5 Year Fixed",                           "Yes", "Rate for 5 Year Fixed term.",                                 "3.75%"),
+          ] %}
+          {% for col, used, desc, ex in guide_rows %}
+          <tr>
+            <td class="col-name">{{ col }}</td>
+            <td class="{% if used == 'Yes' %}cell-yes{% else %}cell-no{% endif %}">{{ used }}</td>
+            <td class="col-desc">{{ desc }}</td>
+            <td class="col-ex">{{ ex }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="table-caption">
+      Rates can be entered as percentages (3.75%) or decimals (0.0375).
+      Blank cells or rates below 1% are ignored.
+    </p>
+  </section>
+
+  <!-- ════════════════ ADMIN ════════════════ -->
+  <section id="tab-admin" class="tab-panel {% if active_tab == 'admin' %}active{% endif %}">
+
+    {% if show_admin_login %}
+    <div class="section-header">
+      <span class="section-eyebrow">Admin Access</span>
+    </div>
+    <div class="form-card" style="max-width:420px">
+      <form method="POST" action="{{ url_for('admin_login') }}">
+        {% if admin_error %}
+        <div class="alert alert-error">{{ admin_error }}</div>
+        {% endif %}
+        <div class="field-group">
+          <label class="field-label">Admin Password</label>
+          <input type="password" name="admin_password" class="input" autofocus>
+        </div>
+        <button type="submit" class="btn btn-primary">Enter</button>
+      </form>
+    </div>
+
+    {% else %}
+    <div class="section-header">
+      <span class="section-eyebrow">Admin Panel</span>
+      <form method="POST" action="{{ url_for('admin_logout') }}" style="margin:0">
+        <button type="submit" class="btn btn-ghost btn-sm">Sign Out of Admin</button>
+      </form>
+    </div>
+
+    {% if request.args.get('msg') == 'passwords_saved' %}
+    <div class="alert alert-success">Passwords updated successfully.</div>
+    {% elif request.args.get('msg') == 'lookup_saved' %}
+    <div class="alert alert-success">Institution lookup file updated.</div>
+    {% endif %}
+
+    <!-- Change passwords -->
+    <div class="admin-block">
+      <h2 class="admin-block-title">Change Passwords</h2>
+      <form method="POST" action="{{ url_for('save_passwords_route') }}" class="form-card">
+        <div class="field-row">
+          <div class="field-group half">
+            <label class="field-label">New App Password</label>
+            <input type="password" name="new_app_pw" class="input" placeholder="Leave blank to keep current">
+          </div>
+          <div class="field-group half">
+            <label class="field-label">New Admin Password</label>
+            <input type="password" name="new_admin_pw" class="input" placeholder="Leave blank to keep current">
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary">Save Passwords</button>
+      </form>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- Upload lookup -->
+    <div class="admin-block">
+      <h2 class="admin-block-title">Update Institution Lookup File</h2>
+      <form method="POST" action="{{ url_for('upload_lookup') }}"
+            enctype="multipart/form-data" class="form-card">
+        <div class="field-group">
+          <label class="field-label">institution_lookup.xlsx</label>
+          <input type="file" name="lookup_file" accept=".xlsx" class="file-input">
+        </div>
+        <button type="submit" class="btn btn-primary">Upload &amp; Save</button>
+      </form>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- Stats -->
+    <div class="admin-block">
+      <h2 class="admin-block-title">Usage Statistics</h2>
+      <div class="stat-grid">
+        <div class="stat-card">
+          <p class="stat-label">Rate Sheets Generated</p>
+          <p class="stat-value">{{ stats.total_rate_sheets }}</p>
+        </div>
+        <div class="stat-card">
+          <p class="stat-label">Custom Queries Run</p>
+          <p class="stat-value">{{ stats.total_queries }}</p>
+        </div>
+        <div class="stat-card">
+          <p class="stat-label">Total Actions</p>
+          <p class="stat-value">{{ stats.total_rate_sheets + stats.total_queries }}</p>
+        </div>
+      </div>
+
+      {% if events %}
+      <h3 class="admin-sub-title">Recent Activity</h3>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr><th>Type</th><th>Timestamp</th></tr></thead>
+          <tbody>
+            {% for e in events %}
+            <tr>
+              <td>{{ e.label }}</td>
+              <td class="cell-muted">{{ e.timestamp }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="muted">No activity recorded yet.</p>
+      {% endif %}
+    </div>
+    {% endif %}
+  </section>
+
+</main>
+
+<!-- ── Footer ──────────────────────────────────────────── -->
+<footer class="site-footer">
+  <div class="container">
+    <p>
+      This tool does not guarantee 100% accuracy. Rates and information should be independently
+      verified before use. For any issues, contact
+      <a href="mailto:henryjagger@gmail.com">Henry Jagger</a>.
+    </p>
+  </div>
+</footer>
+
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
