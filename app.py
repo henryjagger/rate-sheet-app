@@ -7,6 +7,8 @@ from io import BytesIO
 from datetime import datetime
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.cell.rich_text import CellRichText, TextBlock
+from openpyxl.cell.text import InlineFont
 
 LOOKUP_PATH = "institution_lookup.xlsx"
 
@@ -31,18 +33,17 @@ def find_insurance_url(text):
 
 
 def linkify_insurance_html(text):
-    """Wrap the insurance portion of a rating/insurance string in an <a> tag."""
+    """Style only the insurance provider name blue+underlined for clipboard HTML.
+    Uses <span> instead of <a> so Outlook/Excel don't hyperlink the entire cell."""
     if not text or text == "* CANNOT SOURCE, ENTER MANUALLY *":
         return text
     if " – " in text:
         rating, insurance = text.split(" – ", 1)
-        url = find_insurance_url(insurance)
-        if url:
-            return f"{rating} – <a href='{url}' style='color:#0563C1;text-decoration:underline;'>{insurance}</a>"
+        if find_insurance_url(insurance):
+            return f"{rating} – <span style='color:#0563C1;text-decoration:underline;'>{insurance}</span>"
         return text
-    url = find_insurance_url(text)
-    if url:
-        return f"<a href='{url}' style='color:#0563C1;text-decoration:underline;'>{text}</a>"
+    if find_insurance_url(text):
+        return f"<span style='color:#0563C1;text-decoration:underline;'>{text}</span>"
     return text
 PASSWORDS_PATH = "passwords.json"
 STATS_PATH = "data/stats.json"
@@ -500,14 +501,26 @@ def create_excel(output):
         cell.number_format = "0.00%"
         cell.font = red_font
 
-    # Hyperlink insurance providers in column B
+    # Hyperlink insurance providers in column B — only the provider name is blue/underlined
+    normal_inline = InlineFont(rFont="Arial", sz=10, color="000000")
+    link_inline = InlineFont(rFont="Arial", sz=10, color="0563C1", u="single")
     for cell in ws["B"][1:]:
         if not cell.value or cell.value == "* CANNOT SOURCE, ENTER MANUALLY *":
             continue
-        url = find_insurance_url(str(cell.value))
-        if url:
-            cell.hyperlink = url
-            cell.font = Font(name="Arial", size=10, color="0563C1", underline="single")
+        text = str(cell.value)
+        url = find_insurance_url(text)
+        if not url:
+            continue
+        if " – " in text:
+            rating_part, insurance_part = text.split(" – ", 1)
+            cell.value = CellRichText([
+                TextBlock(normal_inline, rating_part + " – "),
+                TextBlock(link_inline, insurance_part),
+            ])
+        else:
+            cell.value = CellRichText([TextBlock(link_inline, text)])
+        cell.hyperlink = url
+        cell.font = Font(name="Arial", size=10)
 
     ws.column_dimensions["A"].width = 35
     ws.column_dimensions["B"].width = 55
@@ -600,84 +613,299 @@ st.set_page_config(
 
 st.markdown("""
 <style>
+    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+
+    /* ── Hide Streamlit chrome ── */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
 
-    /* Times New Roman everywhere */
+    /* ── Design tokens ── */
+    :root {
+        --bg:          #0b0f1a;
+        --surface:     #111827;
+        --surface-hi:  #1a2235;
+        --gold:        #c4a25d;
+        --gold-dim:    rgba(196,162,93,0.15);
+        --gold-border: rgba(196,162,93,0.35);
+        --text:        #e8edf2;
+        --text-muted:  #7a8899;
+        --border:      rgba(255,255,255,0.07);
+        --shadow:      0 8px 32px rgba(0,0,0,0.55);
+        --transition:  all 0.22s ease;
+    }
+
+    /* ── Global typography ── */
     html, body, [class*="css"] {
-        font-family: 'Times New Roman', Times, serif !important;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+        -webkit-font-smoothing: antialiased;
+        letter-spacing: 0.01em;
     }
 
-    /* Tighter page padding */
     .block-container {
-        padding-top: 1.5rem !important;
-        padding-bottom: 1rem !important;
+        padding-top: 2rem !important;
+        padding-bottom: 2.5rem !important;
     }
 
-    /* Buttons */
+    /* ── Buttons ── */
     .stButton > button {
-        background-color: #1A3A5C;
-        color: white;
-        border: none;
-        border-radius: 6px;
-        padding: 0.4rem 1.5rem;
+        background: transparent;
+        color: var(--gold);
+        border: 1px solid var(--gold-border);
+        border-radius: 1px;
+        padding: 0.5rem 2rem;
+        font-family: 'Inter', sans-serif !important;
+        font-size: 0.72rem;
         font-weight: 600;
-        font-family: 'Times New Roman', Times, serif !important;
-        transition: background-color 0.2s;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        transition: var(--transition);
+        box-shadow: none;
     }
-    .stButton > button:hover {
-        background-color: #142E4A;
-        color: white;
+    .stButton > button:hover, .stButton > button:focus {
+        background: var(--gold);
+        color: var(--bg);
+        border-color: var(--gold);
+        box-shadow: 0 0 20px rgba(196,162,93,0.25);
+    }
+    .stButton > button:active {
+        background: #a8883d;
+        border-color: #a8883d;
+        color: var(--bg);
     }
 
-    /* Login card */
+    /* ── Text inputs ── */
+    .stTextInput > div > div > input,
+    .stNumberInput > div > div > input {
+        background-color: var(--surface-hi) !important;
+        border: 1px solid var(--border) !important;
+        border-radius: 1px !important;
+        color: var(--text) !important;
+        font-family: 'Inter', sans-serif !important;
+        font-size: 0.9rem !important;
+        transition: var(--transition);
+    }
+    .stTextInput > div > div > input:focus,
+    .stNumberInput > div > div > input:focus {
+        border-color: var(--gold-border) !important;
+        box-shadow: 0 0 0 2px var(--gold-dim) !important;
+        outline: none !important;
+    }
+    .stTextInput > div > div > input::placeholder {
+        color: var(--text-muted) !important;
+        font-style: italic;
+    }
+
+    /* ── Select / multiselect ── */
+    .stSelectbox > div > div,
+    .stMultiSelect > div > div {
+        background-color: var(--surface-hi) !important;
+        border-color: var(--border) !important;
+        border-radius: 1px !important;
+    }
+
+    /* ── Tabs ── */
+    .stTabs [data-baseweb="tab-list"] {
+        background: transparent !important;
+        border-bottom: 1px solid var(--border) !important;
+        gap: 0;
+        padding-bottom: 0;
+    }
+    .stTabs [data-baseweb="tab"] {
+        font-family: 'Inter', sans-serif !important;
+        font-size: 0.68rem !important;
+        font-weight: 600 !important;
+        letter-spacing: 0.13em !important;
+        text-transform: uppercase !important;
+        color: var(--text-muted) !important;
+        padding: 0.75rem 1.75rem !important;
+        background: transparent !important;
+        border: none !important;
+        border-bottom: 2px solid transparent !important;
+        transition: var(--transition);
+        margin-bottom: -1px;
+    }
+    .stTabs [data-baseweb="tab"]:hover {
+        color: var(--text) !important;
+    }
+    .stTabs [data-baseweb="tab"][aria-selected="true"] {
+        color: var(--gold) !important;
+        border-bottom: 2px solid var(--gold) !important;
+        background: transparent !important;
+    }
+
+    /* ── File uploader ── */
+    [data-testid="stFileUploader"] section {
+        background: var(--surface-hi) !important;
+        border: 1px dashed var(--gold-border) !important;
+        border-radius: 1px !important;
+        transition: var(--transition);
+    }
+    [data-testid="stFileUploader"] section:hover {
+        border-color: var(--gold) !important;
+        background: var(--gold-dim) !important;
+    }
+
+    /* ── Metrics ── */
+    [data-testid="metric-container"] {
+        background: var(--surface) !important;
+        border: 1px solid var(--border) !important;
+        border-top: 2px solid var(--gold) !important;
+        padding: 1.2rem 1.5rem !important;
+        border-radius: 1px !important;
+        box-shadow: var(--shadow);
+    }
+    [data-testid="stMetricLabel"] > div {
+        font-family: 'Inter', sans-serif !important;
+        font-size: 0.65rem !important;
+        font-weight: 700 !important;
+        letter-spacing: 0.14em !important;
+        text-transform: uppercase !important;
+        color: var(--text-muted) !important;
+    }
+    [data-testid="stMetricValue"] > div {
+        font-family: 'Playfair Display', Georgia, serif !important;
+        font-size: 2.1rem !important;
+        color: var(--text) !important;
+        font-weight: 600;
+    }
+
+    /* ── Alerts ── */
+    .stAlert {
+        border-radius: 1px !important;
+        border-left: 3px solid var(--gold) !important;
+        background: var(--surface) !important;
+        font-family: 'Inter', sans-serif !important;
+        font-size: 0.85rem !important;
+    }
+
+    /* ── Dataframe ── */
+    .stDataFrame {
+        border: 1px solid var(--border) !important;
+        border-radius: 1px !important;
+    }
+
+    /* ── Checkbox / radio labels ── */
+    .stCheckbox label p, .stRadio label p {
+        font-family: 'Inter', sans-serif !important;
+        font-size: 0.85rem !important;
+    }
+
+    /* ── Section descriptions ── */
+    .stMarkdown p, .stWrite p {
+        font-family: 'Inter', sans-serif !important;
+        color: var(--text-muted) !important;
+        font-size: 0.85rem !important;
+        line-height: 1.65 !important;
+    }
+
+    /* ── Dividers ── */
+    hr {
+        border: none !important;
+        border-top: 1px solid var(--border) !important;
+        margin: 1.75rem 0 !important;
+    }
+
+    /* ── Caption ── */
+    .stCaption {
+        color: var(--text-muted) !important;
+        font-family: 'Inter', sans-serif !important;
+        font-size: 0.75rem !important;
+    }
+
+    /* ── Subheaders ── */
+    h2, h3, .stMarkdown h2, .stMarkdown h3 {
+        font-family: 'Inter', sans-serif !important;
+        font-size: 0.7rem !important;
+        font-weight: 700 !important;
+        letter-spacing: 0.14em !important;
+        text-transform: uppercase !important;
+        color: var(--gold) !important;
+        margin-bottom: 0.75rem !important;
+    }
+
+    /* ── Custom components ── */
+    .login-wrap {
+        margin-top: 4rem;
+    }
+    .login-eyebrow {
+        font-family: 'Inter', sans-serif;
+        font-size: 0.62rem;
+        font-weight: 700;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: var(--gold);
+        margin-bottom: 0.6rem;
+    }
     .login-card {
-        background: #FAF7F2;
-        border-radius: 10px;
-        padding: 2rem 2rem 1.5rem 2rem;
-        box-shadow: 0 2px 12px rgba(0,0,0,0.08);
-        margin-top: 2rem;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-top: 2px solid var(--gold);
+        padding: 2.5rem 2.5rem 2rem;
+        box-shadow: var(--shadow);
     }
     .login-title {
-        color: #1A202C;
-        font-family: 'Times New Roman', Times, serif;
-        font-size: 1.5rem;
+        font-family: 'Playfair Display', Georgia, serif;
+        font-size: 1.75rem;
         font-weight: 700;
-        margin-bottom: 0.2rem;
+        color: var(--text);
+        margin-bottom: 0.3rem;
+        letter-spacing: -0.01em;
+        line-height: 1.2;
     }
     .login-sub {
-        color: #718096;
-        font-family: 'Times New Roman', Times, serif;
-        font-size: 0.88rem;
-        margin-bottom: 1.25rem;
+        font-family: 'Inter', sans-serif;
+        font-size: 0.8rem;
+        color: var(--text-muted);
+        margin-bottom: 0;
+        letter-spacing: 0.02em;
+        line-height: 1.5;
+    }
+    .login-rule {
+        border: none;
+        border-top: 1px solid var(--border);
+        margin: 1.5rem 0 1.25rem;
     }
 
-    /* Page header */
     .page-header {
-        border-bottom: 2px solid #D9D0C4;
-        padding-bottom: 0.6rem;
-        margin-bottom: 1rem;
+        padding-bottom: 1.25rem;
+        margin-bottom: 1.5rem;
+        border-bottom: 1px solid var(--border);
+        position: relative;
+    }
+    .page-header::after {
+        content: '';
+        position: absolute;
+        bottom: -1px;
+        left: 0;
+        width: 48px;
+        height: 2px;
+        background: var(--gold);
+    }
+    .page-header-eyebrow {
+        font-family: 'Inter', sans-serif;
+        font-size: 0.62rem;
+        font-weight: 700;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: var(--gold);
+        margin-bottom: 0.5rem;
     }
     .page-header h1 {
-        color: #1A202C;
-        font-family: 'Times New Roman', Times, serif;
-        margin: 0;
-        font-size: 2.2rem;
+        font-family: 'Playfair Display', Georgia, serif;
+        font-size: 2.1rem;
         font-weight: 700;
+        color: var(--text);
+        margin: 0;
+        letter-spacing: -0.01em;
+        line-height: 1.15;
     }
     .page-header p {
-        color: #718096;
-        font-family: 'Times New Roman', Times, serif;
-        margin: 0.15rem 0 0 0;
-        font-size: 0.88rem;
-    }
-
-    /* Tabs */
-    .stTabs [data-baseweb="tab"][aria-selected="true"] {
-        color: #1A3A5C;
-        font-weight: 700;
-        border-bottom-color: #1A3A5C;
+        font-family: 'Inter', sans-serif;
+        font-size: 0.82rem;
+        color: var(--text-muted);
+        margin: 0.4rem 0 0;
+        letter-spacing: 0.03em;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -688,16 +916,20 @@ if "admin_authenticated" not in st.session_state:
     st.session_state.admin_authenticated = False
 
 if not st.session_state.authenticated:
-    _, col, _ = st.columns([1, 1.2, 1])
+    _, col, _ = st.columns([1, 1.1, 1])
     with col:
         st.markdown("""
-        <div class="login-card">
-            <div class="login-title">Rate Sheet Generator</div>
-            <div class="login-sub">Enter your password to continue</div>
+        <div class="login-wrap">
+            <div class="login-eyebrow">Fixed Income &mdash; Institutional Rates</div>
+            <div class="login-card">
+                <div class="login-title">Rate Sheet Generator</div>
+                <div class="login-sub">Authorised personnel only. Enter your access credentials to continue.</div>
+                <hr class="login-rule">
+            </div>
         </div>
         """, unsafe_allow_html=True)
         password = st.text_input("Password", type="password", label_visibility="collapsed",
-                                 placeholder="Password")
+                                 placeholder="Access password")
         if st.button("Enter", use_container_width=True):
             if password == load_passwords()["app_password"]:
                 st.session_state.authenticated = True
@@ -708,8 +940,9 @@ if not st.session_state.authenticated:
 
 st.markdown("""
 <div class="page-header">
+    <div class="page-header-eyebrow">Fixed Income &mdash; Capital Markets</div>
     <h1>Rate Sheet Generator</h1>
-    <p>Generate and query institutional rate sheets</p>
+    <p>Generate and query institutional GIC rate sheets</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -848,11 +1081,33 @@ with tab1:
                 f"<th style='{th_style}' bgcolor='#000000'><font color='#ffffff' face='Calibri'><b>{h}</b></font></th>"
                 for h in headers
             ) + "</tr>"
+            # Compute rowspans for the Term column so consecutive identical terms merge
+            rows_list = list(df_display.itertuples(index=False, name=None))
+            term_col_idx = headers.index("Term") if "Term" in headers else None
+            rowspans = []
+            if term_col_idx is not None:
+                i = 0
+                while i < len(rows_list):
+                    span = 1
+                    while i + span < len(rows_list) and rows_list[i + span][term_col_idx] == rows_list[i][term_col_idx]:
+                        span += 1
+                    rowspans.extend([span] + [0] * (span - 1))
+                    i += span
+            else:
+                rowspans = [1] * len(rows_list)
+
+            td_merge_style = td_style + "vertical-align:middle;"
             data_rows = ""
-            for _, row in df_display.iterrows():
+            for row_idx, row_vals in enumerate(rows_list):
                 cells = ""
-                for col, val in zip(headers, row):
-                    if col == "Rate":
+                for col_idx, (col, val) in enumerate(zip(headers, row_vals)):
+                    if term_col_idx is not None and col_idx == term_col_idx:
+                        span = rowspans[row_idx]
+                        if span == 0:
+                            continue
+                        span_attr = f" rowspan='{span}'" if span > 1 else ""
+                        cells += f"<td{span_attr} style='{td_merge_style}'><font face='Calibri'>{val}</font></td>"
+                    elif col == "Rate":
                         cells += f"<td style='{td_rate_style}'><font face='Calibri' color='#C00000'>{val}</font></td>"
                     elif col == "Credit Rating & Guarantee":
                         linked = linkify_insurance_html(str(val))
@@ -884,18 +1139,24 @@ with tab1:
                 this.textContent = '✓ Copied!';
                 setTimeout(() => this.textContent = 'Copy to Clipboard', 2000);
             }})()" style="
-                background-color: #1A3A5C;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                padding: 6px 16px;
-                font-size: 14px;
-                font-family: 'Times New Roman', Times, serif;
+                background: transparent;
+                color: #c4a25d;
+                border: 1px solid rgba(196,162,93,0.35);
+                border-radius: 1px;
+                padding: 0 16px;
+                font-size: 11px;
+                font-family: 'Inter', sans-serif;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.14em;
                 cursor: pointer;
                 height: 38px;
                 width: 100%;
-            ">Copy to Clipboard</button>
-            """, height=45)
+                transition: all 0.22s ease;
+            " onmouseover="this.style.background='#c4a25d';this.style.color='#0b0f1a';"
+               onmouseout="this.style.background='transparent';this.style.color='#c4a25d';"
+            >Copy to Clipboard</button>
+            """, height=50)
 
 with tab2:
     st.write("Upload your Master Rates file to generate the full formatted rate sheet.")
