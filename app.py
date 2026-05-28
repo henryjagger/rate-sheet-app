@@ -407,7 +407,7 @@ def create_excel(output):
 
     header_fill = PatternFill(
         "solid",
-        fgColor="333333"
+        fgColor="000000"
     )
 
     header_font = Font(
@@ -455,6 +455,7 @@ def create_excel(output):
     for cell in ws[1]:
         cell.fill = header_fill
         cell.font = Font(name="Arial", size=10, color="FFFFFF", bold=True)
+
         cell.alignment = Alignment(
             horizontal="center",
             vertical="center"
@@ -796,11 +797,11 @@ with tab1:
             # Build styled HTML table for rich paste into Excel/Word/Outlook
             # <font> tags used inside headers so Outlook's Word renderer shows white text
             headers = df_display.columns.tolist()
-            th_style = "border:1px solid #ccc;padding:6px 12px;background-color:#333333;font-family:Calibri,sans-serif;font-size:11pt;"
+            th_style = "border:1px solid #ccc;padding:6px 12px;background-color:#000000;font-family:Calibri,sans-serif;font-size:11pt;"
             td_style = "border:1px solid #ccc;padding:6px 12px;font-family:Calibri,sans-serif;font-size:11pt;text-align:center;"
             td_rate_style = td_style + "color:#C00000;"
             header_row = "<tr>" + "".join(
-                f"<th style='{th_style}' bgcolor='#333333'><font color='#ffffff' face='Calibri'><b>{h}</b></font></th>"
+                f"<th style='{th_style}' bgcolor='#000000'><font color='#ffffff' face='Calibri'><b>{h}</b></font></th>"
                 for h in headers
             ) + "</tr>"
             data_rows = ""
