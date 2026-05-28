@@ -794,17 +794,23 @@ with tab1:
 
         with btn_col2:
             # Build styled HTML table for rich paste into Excel/Word/Outlook
+            # <font> tags used inside headers so Outlook's Word renderer shows white text
             headers = df_display.columns.tolist()
-            th_style = "border:1px solid #ccc;padding:6px 12px;background:#333333;color:#ffffff;font-weight:bold;font-family:Arial,sans-serif;font-size:10pt;"
-            td_style = "border:1px solid #ccc;padding:6px 12px;font-family:Arial,sans-serif;font-size:10pt;text-align:center;"
+            th_style = "border:1px solid #ccc;padding:6px 12px;background-color:#333333;font-family:Calibri,sans-serif;font-size:11pt;"
+            td_style = "border:1px solid #ccc;padding:6px 12px;font-family:Calibri,sans-serif;font-size:11pt;text-align:center;"
             td_rate_style = td_style + "color:#C00000;"
-            header_row = "<tr>" + "".join(f"<th style='{th_style}'>{h}</th>" for h in headers) + "</tr>"
+            header_row = "<tr>" + "".join(
+                f"<th style='{th_style}' bgcolor='#333333'><font color='#ffffff' face='Calibri'><b>{h}</b></font></th>"
+                for h in headers
+            ) + "</tr>"
             data_rows = ""
             for _, row in df_display.iterrows():
                 cells = ""
                 for col, val in zip(headers, row):
-                    style = td_rate_style if col == "Rate" else td_style
-                    cells += f"<td style='{style}'>{val}</td>"
+                    if col == "Rate":
+                        cells += f"<td style='{td_rate_style}'><font face='Calibri' color='#C00000'>{val}</font></td>"
+                    else:
+                        cells += f"<td style='{td_style}'><font face='Calibri'>{val}</font></td>"
                 data_rows += f"<tr>{cells}</tr>"
             html_table = f"<table style='border-collapse:collapse;'>{header_row}{data_rows}</table>"
 
