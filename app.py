@@ -1267,9 +1267,11 @@ with tab_data:
     term_options_list = [t[0] for t in TERM_COLUMNS]
     st.caption("Term options: " + "  ·  ".join(term_options_list))
 
-    _sp_snapshot = st.session_state.special_rates.copy()
+    # Pass session state directly — never a copy.
+    # Passing a new object every rerun makes Streamlit treat it as fresh
+    # input, resetting the widget's pending-edit state and wiping typed data.
     special_edited = st.data_editor(
-        _sp_snapshot,
+        st.session_state.special_rates,
         num_rows="dynamic",
         use_container_width=True,
         height=320,
@@ -1280,25 +1282,21 @@ with tab_data:
             "Rate":          st.column_config.TextColumn("Rate",           width="small"),
         },
     )
-    # Only write back if something actually changed to avoid feedback loops
-    try:
-        if not special_edited.equals(_sp_snapshot):
-            updated = special_edited.astype(str).fillna("")
-            st.session_state.special_rates = updated
-            # Auto-save any newly completed rows to the issuer database
-            for _, row in updated.iterrows():
-                issuer = row.get("Issuer", "").strip()
-                term   = row.get("Term", "").strip()
-                rate   = row.get("Rate", "").strip()
-                if issuer and term and rate and issuer != "nan" and term != "nan":
-                    save_rate_to_history(
-                        issuer,
-                        row.get("Credit Rating", "").strip(),
-                        term,
-                        rate,
-                    )
-    except Exception:
-        st.session_state.special_rates = special_edited
+    # Always write back unconditionally — conditional equals() checks can
+    # cause edits to be silently dropped when the comparison misfires.
+    st.session_state.special_rates = special_edited.astype(str).fillna("")
+
+    # Auto-save completed rows to the issuer history database
+    for _, row in st.session_state.special_rates.iterrows():
+        issuer = str(row.get("Issuer", "")).strip()
+        term   = str(row.get("Term",   "")).strip()
+        rate   = str(row.get("Rate",   "")).strip()
+        if issuer and term and rate and issuer not in ("", "nan") and term not in ("", "nan"):
+            save_rate_to_history(
+                issuer,
+                str(row.get("Credit Rating", "")).strip(),
+                term, rate,
+            )
 
     # ── Issuer Database ──────────────────────────────────────────────────────
     st.markdown("---")
