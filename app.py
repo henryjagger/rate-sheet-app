@@ -14,6 +14,50 @@ from openpyxl.cell.rich_text import CellRichText, TextBlock
 from openpyxl.cell.text import InlineFont
 
 LOOKUP_PATH = "institution_lookup.xlsx"
+HISTORY_PATH = os.path.join(os.path.expanduser("~"), ".ratesheet", "special_rates_history.json")
+
+
+@st.cache_resource
+def _rate_history_store():
+    """Shared, persistent store of special-rate history keyed by normalised issuer name."""
+    store = {}
+    try:
+        if os.path.exists(HISTORY_PATH):
+            with open(HISTORY_PATH) as f:
+                store.update(json.load(f))
+    except Exception:
+        pass
+    return store
+
+
+def _save_history_to_disk():
+    store = _rate_history_store()
+    try:
+        os.makedirs(os.path.dirname(HISTORY_PATH), exist_ok=True)
+        with open(HISTORY_PATH, "w") as f:
+            json.dump(store, f, indent=2)
+    except Exception:
+        pass
+
+
+def save_rate_to_history(issuer, credit_rating, term, rate):
+    """Record one special rate entry so it can be suggested later."""
+    if not issuer.strip() or not term.strip():
+        return
+    store = _rate_history_store()
+    key = issuer.strip().lower()
+    if key not in store:
+        store[key] = {"display_name": issuer.strip(), "entries": []}
+    store[key]["display_name"] = issuer.strip()
+    entry = {
+        "credit_rating": credit_rating or "",
+        "term": term,
+        "rate": rate or "",
+        "saved_at": datetime.now(_VAN).strftime("%Y-%m-%d %H:%M"),
+    }
+    existing = [e for e in store[key]["entries"] if e["term"] != term]
+    store[key]["entries"] = [entry] + existing[:14]
+    _save_history_to_disk()
 
 INSURANCE_URLS = {
     "CDIC":  "https://www.cdic.ca",
@@ -1239,9 +1283,142 @@ with tab_data:
     # Only write back if something actually changed to avoid feedback loops
     try:
         if not special_edited.equals(_sp_snapshot):
-            st.session_state.special_rates = special_edited.astype(str).fillna("")
+            updated = special_edited.astype(str).fillna("")
+            st.session_state.special_rates = updated
+            # Auto-save any newly completed rows to the issuer database
+            for _, row in updated.iterrows():
+                issuer = row.get("Issuer", "").strip()
+                term   = row.get("Term", "").strip()
+                rate   = row.get("Rate", "").strip()
+                if issuer and term and rate and issuer != "nan" and term != "nan":
+                    save_rate_to_history(
+                        issuer,
+                        row.get("Credit Rating", "").strip(),
+                        term,
+                        rate,
+                    )
     except Exception:
         st.session_state.special_rates = special_edited
+
+    # ── Issuer Database ──────────────────────────────────────────────────────
+    st.markdown("---")
+    st.subheader("Issuer Database")
+    st.caption(
+        "Search any issuer to see its credit rating from the institution lookup "
+        "and any historically saved special rates. Click **Add** to drop a row "
+        "straight into the Special Rates grid above."
+    )
+
+    store = _rate_history_store()
+    history_names  = {v["display_name"] for v in store.values() if "display_name" in v}
+    lookup_names   = {info["display_name"] for info in (lookup or {}).values()}
+    all_known      = sorted(history_names | lookup_names)
+
+    db_search = st.text_input(
+        "Search issuer",
+        placeholder="Start typing an issuer name…",
+        key="db_search",
+        label_visibility="collapsed",
+    )
+
+    if db_search:
+        q = db_search.strip().lower()
+        matches = [n for n in all_known if q in n.lower()][:8]
+
+        if not matches:
+            st.caption("No known issuers match that name. Enter rates manually in the grid above.")
+        else:
+            for name in matches:
+                norm        = normalize_name(name)
+                lookup_info = (lookup or {}).get(norm)
+                hist_key    = name.lower()
+                hist_entries = store.get(hist_key, {}).get("entries", [])
+
+                # Build the credit rating string from lookup
+                def _build_rating(term_type):
+                    if not lookup_info:
+                        return ""
+                    r   = lookup_info.get(f"{term_type}_rating", "")
+                    ins = lookup_info.get("insurance", "")
+                    if r and ins:  return f"{r} – {ins}"
+                    return r or ins or ""
+
+                long_rating  = _build_rating("long")
+                short_rating = _build_rating("short")
+
+                with st.expander(f"**{name}**", expanded=(len(matches) == 1)):
+                    if lookup_info:
+                        if long_rating:
+                            st.markdown(f"**Long-term rating:** {long_rating}")
+                        if short_rating:
+                            st.markdown(f"**Short-term rating:** {short_rating}")
+
+                    if hist_entries:
+                        st.markdown("**Previous special rates:**")
+                        hdr = st.columns([3, 2, 1, 1])
+                        hdr[0].caption("Credit Rating")
+                        hdr[1].caption("Term")
+                        hdr[2].caption("Rate")
+                        for i, entry in enumerate(hist_entries[:8]):
+                            c1, c2, c3, c4 = st.columns([3, 2, 1, 1])
+                            c1.write(entry.get("credit_rating") or "—")
+                            c2.write(entry.get("term", ""))
+                            c3.write(entry.get("rate", ""))
+                            if c4.button("Add", key=f"db_add_{name}_{i}"):
+                                new_row = pd.DataFrame([{
+                                    "Issuer":        name,
+                                    "Credit Rating": entry.get("credit_rating", ""),
+                                    "Term":          entry.get("term", ""),
+                                    "Rate":          entry.get("rate", ""),
+                                }])
+                                existing = st.session_state.special_rates[
+                                    st.session_state.special_rates["Issuer"].astype(str).str.strip().ne("")
+                                ]
+                                st.session_state.special_rates = (
+                                    pd.concat([existing, new_row], ignore_index=True)
+                                    .astype(str).fillna("")
+                                )
+                                st.rerun()
+                    elif not lookup_info:
+                        st.caption("No history yet — add a rate manually in the grid above and it will appear here next time.")
+
+                    # Quick-add from lookup rating
+                    if lookup_info and (long_rating or short_rating):
+                        st.markdown("**Add from lookup:**")
+                        qa_col1, qa_col2, qa_col3 = st.columns([2, 1, 1])
+                        with qa_col1:
+                            qa_rating = st.selectbox(
+                                "Rating",
+                                options=[r for r in [long_rating, short_rating] if r],
+                                key=f"qa_rating_{name}",
+                            )
+                        with qa_col2:
+                            qa_term = st.selectbox(
+                                "Term",
+                                options=[t[0] for t in TERM_COLUMNS],
+                                key=f"qa_term_{name}",
+                            )
+                        with qa_col3:
+                            qa_rate = st.text_input("Rate", key=f"qa_rate_{name}", placeholder="e.g. 3.75%")
+                        if st.button("Add to Special Rates", key=f"qa_add_{name}"):
+                            if qa_rate.strip():
+                                new_row = pd.DataFrame([{
+                                    "Issuer":        name,
+                                    "Credit Rating": qa_rating,
+                                    "Term":          qa_term,
+                                    "Rate":          qa_rate.strip(),
+                                }])
+                                existing = st.session_state.special_rates[
+                                    st.session_state.special_rates["Issuer"].astype(str).str.strip().ne("")
+                                ]
+                                st.session_state.special_rates = (
+                                    pd.concat([existing, new_row], ignore_index=True)
+                                    .astype(str).fillna("")
+                                )
+                                save_rate_to_history(name, qa_rating, qa_term, qa_rate.strip())
+                                st.rerun()
+                            else:
+                                st.warning("Enter a rate first.")
 
 
 with tab1:
