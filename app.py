@@ -5,6 +5,9 @@ import streamlit.components.v1 as components
 import pandas as pd
 from io import BytesIO, StringIO
 from datetime import datetime
+from zoneinfo import ZoneInfo
+
+_VAN = ZoneInfo("America/Vancouver")
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.cell.rich_text import CellRichText, TextBlock
@@ -1130,7 +1133,7 @@ with tab_data:
             shared["master_grid"]  = st.session_state.master_grid.to_dict(orient="records")
             shared["master_cols"]  = list(st.session_state.master_grid.columns)
             shared["special_rates"] = st.session_state.special_rates.to_dict(orient="records")
-            shared["saved_at"]     = datetime.now().strftime("%b %d, %Y at %I:%M %p")
+            shared["saved_at"]     = datetime.now(_VAN).strftime("%b %d, %Y at %I:%M %p")
             st.success("Saved! Team members can now click 'Use Last' to load this data.")
     with load_col:
         if shared.get("saved_at"):
