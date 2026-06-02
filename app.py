@@ -997,11 +997,38 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+MASTER_GRID_COLS = [
+    "Issuer", "Available",
+    "5 Year Fixed", "4 Year Fixed", "3 Year Fixed", "2 Year Fixed",
+    "18 Month Fixed", "1 Year Fixed",
+    "270 Days", "180 Days", "90 Days", "60 Days", "30 Days",
+    "Cashable After 90 Days", "Cashable After 30 Days",
+]
+
+def empty_master_df():
+    return pd.DataFrame("", index=range(50), columns=MASTER_GRID_COLS)
+
+def master_row_count():
+    return int(
+        st.session_state.master_grid["Issuer"]
+        .astype(str).str.strip().ne("").sum()
+    )
+
+def get_master_file():
+    df = st.session_state.master_grid.copy()
+    df = df[df["Issuer"].astype(str).str.strip().ne("")]
+    if df.empty:
+        return None
+    buf = BytesIO()
+    df.to_excel(buf, index=False)
+    buf.seek(0)
+    return buf
+
 if "query_results" not in st.session_state:
     st.session_state.query_results = None
     st.session_state.query_excel = None
-if "master_df" not in st.session_state:
-    st.session_state.master_df = None
+if "master_grid" not in st.session_state:
+    st.session_state.master_grid = empty_master_df()
 
 
 @st.cache_data
@@ -1021,56 +1048,51 @@ if lookup is None:
         "Place institution_lookup.xlsx in the app folder and restart."
     )
 
-tab1, tab2, tab3, tab4 = st.tabs(["Custom Query", "Rate Sheet Generator", "File Format Guide", "Admin"])
+tab_data, tab1, tab2, tab3, tab4 = st.tabs([
+    "Master Data", "Custom Query", "Rate Sheet Generator", "File Format Guide", "Admin"
+])
 
-def master_paste_ui(key_suffix=""):
-    """Paste-in interface shared by Custom Query and Rate Sheet Generator tabs."""
-    if st.session_state.master_df is not None:
-        n = len(st.session_state.master_df.dropna(subset=[st.session_state.master_df.columns[0]]))
-        st.success(f"{n} institutions loaded.")
-        with st.expander("View / edit data"):
-            edited = st.data_editor(
-                st.session_state.master_df,
-                num_rows="dynamic",
-                use_container_width=True,
-                height=320,
-                key=f"master_editor_{key_suffix}",
-            )
-            st.session_state.master_df = edited
-        if st.button("Clear data and re-paste", key=f"clear_{key_suffix}"):
-            st.session_state.master_df = None
+with tab_data:
+    st.caption(
+        "Enter your master rates below. "
+        "To paste from Excel or Google Sheets: copy your data (Ctrl+C / ⌘C), "
+        "click the first cell in the **Issuer** column, then paste (Ctrl+V / ⌘V). "
+        "Column order must match the headers shown."
+    )
+    hdr_col, btn_col = st.columns([8, 1])
+    with btn_col:
+        if st.button("Clear all"):
+            st.session_state.master_grid = empty_master_df()
             st.rerun()
-    else:
-        st.markdown(
-            "**Paste your master rates data below.** "
-            "In Excel or Google Sheets: select all (Ctrl+A / ⌘A), copy (Ctrl+C / ⌘C), then paste here."
-        )
-        pasted = st.text_area(
-            "Paste data here",
-            height=200,
-            placeholder="Paste your copied spreadsheet data here…",
-            key=f"paste_area_{key_suffix}",
-            label_visibility="collapsed",
-        )
-        if st.button("Load data →", key=f"load_{key_suffix}"):
-            if not pasted.strip():
-                st.warning("Nothing to load — paste your data first.")
-            else:
-                try:
-                    df = pd.read_csv(StringIO(pasted), sep="\t", dtype=str)
-                    df.columns = [str(c).strip() for c in df.columns]
-                    st.session_state.master_df = df
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Could not parse pasted data: {e}")
 
+    edited = st.data_editor(
+        st.session_state.master_grid,
+        num_rows="dynamic",
+        use_container_width=True,
+        height=520,
+        column_config={
+            "Issuer":                  st.column_config.TextColumn("Issuer",                  width="large"),
+            "Available":               st.column_config.TextColumn("Available",               width="small"),
+            "5 Year Fixed":            st.column_config.TextColumn("5 Yr Fixed",              width="medium"),
+            "4 Year Fixed":            st.column_config.TextColumn("4 Yr Fixed",              width="medium"),
+            "3 Year Fixed":            st.column_config.TextColumn("3 Yr Fixed",              width="medium"),
+            "2 Year Fixed":            st.column_config.TextColumn("2 Yr Fixed",              width="medium"),
+            "18 Month Fixed":          st.column_config.TextColumn("18 Mo Fixed",             width="medium"),
+            "1 Year Fixed":            st.column_config.TextColumn("1 Yr Fixed",              width="medium"),
+            "270 Days":                st.column_config.TextColumn("270 Days",                width="medium"),
+            "180 Days":                st.column_config.TextColumn("180 Days",                width="medium"),
+            "90 Days":                 st.column_config.TextColumn("90 Days",                 width="medium"),
+            "60 Days":                 st.column_config.TextColumn("60 Days",                 width="medium"),
+            "30 Days":                 st.column_config.TextColumn("30 Days",                 width="medium"),
+            "Cashable After 90 Days":  st.column_config.TextColumn("Cash. 90 Days",           width="medium"),
+            "Cashable After 30 Days":  st.column_config.TextColumn("Cash. 30 Days",           width="medium"),
+        },
+    )
+    st.session_state.master_grid = edited
 
-def master_df_to_file():
-    """Convert the pasted master DataFrame to a BytesIO Excel file for processing."""
-    buf = BytesIO()
-    st.session_state.master_df.to_excel(buf, index=False)
-    buf.seek(0)
-    return buf
+    n = master_row_count()
+    if n:
+        st.caption(f"{n} institution{'s' if n != 1 else ''} entered.")
 
 
 with tab1:
@@ -1078,12 +1100,16 @@ with tab1:
 
     query_source = st.radio(
         "Data source",
-        ["Master Rates (pasted)", "Formatted Rate Sheet"],
+        ["Master Data", "Formatted Rate Sheet"],
         horizontal=True
     )
 
-    if query_source == "Master Rates (pasted)":
-        master_paste_ui(key_suffix="query")
+    if query_source == "Master Data":
+        n = master_row_count()
+        if n:
+            st.info(f"{n} institutions loaded from Master Data tab.")
+        else:
+            st.warning("No data entered yet — go to the **Master Data** tab and paste your rates.")
     else:
         formatted_sheet_file = st.file_uploader(
             "Upload Formatted Rate Sheet",
@@ -1161,8 +1187,8 @@ with tab1:
     if st.button("Run Query"):
         if not selected_terms:
             st.warning("Please select at least one term.")
-        elif query_source == "Master Rates (pasted)" and st.session_state.master_df is None:
-            st.error("Paste your master rates data first.")
+        elif query_source == "Master Data" and master_row_count() == 0:
+            st.error("No data entered — go to the Master Data tab and paste your rates first.")
         elif query_source == "Formatted Rate Sheet" and not formatted_sheet_file:
             st.error("Please upload a Formatted Rate Sheet.")
         else:
@@ -1176,7 +1202,7 @@ with tab1:
                 log_event("sheet_query")
             else:
                 results = generate_custom_query(
-                    master_df_to_file(),
+                    get_master_file(),
                     lookup,
                     selected_terms,
                     int(top_n),
@@ -1309,15 +1335,19 @@ with tab1:
             """, height=50)
 
 with tab2:
-    st.write("Paste your master rates data to generate the full formatted rate sheet.")
+    st.write("Generate a formatted rate sheet from the data entered in the Master Data tab.")
 
-    master_paste_ui(key_suffix="gen")
+    n = master_row_count()
+    if n:
+        st.info(f"{n} institutions loaded from Master Data tab.")
+    else:
+        st.warning("No data entered yet — go to the **Master Data** tab and paste your rates.")
 
     if st.button("Generate Formatted Rate Sheet"):
-        if st.session_state.master_df is None:
-            st.error("Paste your master rates data first.")
+        if master_row_count() == 0:
+            st.error("No data entered — go to the Master Data tab and paste your rates first.")
         else:
-            output = generate_report(master_df_to_file(), lookup)
+            output = generate_report(get_master_file(), lookup)
             excel_file = create_excel(output)
             log_event("rate_sheet")
 
