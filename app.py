@@ -1056,11 +1056,38 @@ def get_master_file():
     buf.seek(0)
     return buf
 
+SPECIAL_RATES_COLS = ["Issuer", "Credit Rating", "Term", "Rate"]
+
+def empty_special_rates_df():
+    return pd.DataFrame("", index=range(10), columns=SPECIAL_RATES_COLS)
+
+def get_special_rate_rows(selected_terms=None):
+    df = st.session_state.special_rates.copy()
+    rows = []
+    for _, row in df.iterrows():
+        issuer = str(row["Issuer"]).strip()
+        if not issuer or issuer in ("", "nan"):
+            continue
+        term = str(row["Term"]).strip()
+        if not term or term in ("", "nan"):
+            continue
+        rate = parse_rate(row["Rate"])
+        if rate < 0.01:
+            continue
+        if selected_terms is not None and term not in selected_terms:
+            continue
+        rating = str(row["Credit Rating"]).strip()
+        rating = "" if rating == "nan" else rating
+        rows.append([issuer, rating, term, rate])
+    return rows
+
 if "query_results" not in st.session_state:
     st.session_state.query_results = None
     st.session_state.query_excel = None
 if "master_grid" not in st.session_state:
     st.session_state.master_grid = empty_master_df()
+if "special_rates" not in st.session_state:
+    st.session_state.special_rates = empty_special_rates_df()
 
 
 @st.cache_data
@@ -1138,6 +1165,31 @@ with tab_data:
     n = master_row_count()
     if n:
         st.caption(f"{n} institution{'s' if n != 1 else ''} entered.")
+
+    st.markdown("---")
+    st.subheader("Special Rates")
+    st.caption("Manually enter special or off-market rates. These are included in all queries and rate sheet generation.")
+
+    sp_hdr, sp_btn = st.columns([8, 1])
+    with sp_btn:
+        if st.button("Clear", key="clear_special"):
+            st.session_state.special_rates = empty_special_rates_df()
+            st.rerun()
+
+    term_options_list = [t[0] for t in TERM_COLUMNS]
+    special_edited = st.data_editor(
+        st.session_state.special_rates,
+        num_rows="dynamic",
+        use_container_width=True,
+        height=320,
+        column_config={
+            "Issuer":        st.column_config.TextColumn("Issuer",         width="large"),
+            "Credit Rating": st.column_config.TextColumn("Credit Rating",  width="large"),
+            "Term":          st.column_config.SelectboxColumn("Term", options=term_options_list, width="medium"),
+            "Rate":          st.column_config.TextColumn("Rate",           width="small"),
+        },
+    )
+    st.session_state.special_rates = special_edited
 
 
 with tab1:
@@ -1254,6 +1306,8 @@ with tab1:
                     credit_rated_only
                 )
                 log_event("master_query")
+
+            results = results + get_special_rate_rows(selected_terms)
 
             results = apply_query_filters(
                 results,
@@ -1393,6 +1447,7 @@ with tab2:
             st.error("No data entered — go to the Master Data tab and paste your rates first.")
         else:
             output = generate_report(get_master_file(), lookup)
+            output = output + get_special_rate_rows()
             excel_file = create_excel(output)
             log_event("rate_sheet")
 
