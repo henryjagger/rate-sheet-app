@@ -3,7 +3,7 @@ import json
 import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
-from io import BytesIO
+from io import BytesIO, StringIO
 from datetime import datetime
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -670,18 +670,20 @@ st.markdown("""
 
     /* ── Design tokens ── */
     :root {
-        --bg:          #0b0f1a;
-        --surface:     #111827;
-        --surface-hi:  #1a2235;
-        --gold:        #c4a25d;
-        --gold-dim:    rgba(196,162,93,0.15);
-        --gold-border: rgba(196,162,93,0.35);
-        --text:        #e8edf2;
-        --text-muted:  #7a8899;
-        --border:      rgba(255,255,255,0.07);
-        --shadow:      0 8px 32px rgba(0,0,0,0.55);
+        --bg:          #ffffff;
+        --surface:     #f5f5f7;
+        --surface-hi:  #e8e8ea;
+        --gold:        #111111;
+        --gold-dim:    rgba(0,0,0,0.05);
+        --gold-border: rgba(0,0,0,0.25);
+        --text:        #111111;
+        --text-muted:  #666666;
+        --border:      rgba(0,0,0,0.1);
+        --shadow:      0 4px 16px rgba(0,0,0,0.08);
         --transition:  all 0.22s ease;
     }
+
+    .stApp { background-color: #ffffff !important; }
 
     /* ── Global typography ── */
     html, body, [class*="css"] {
@@ -714,12 +716,12 @@ st.markdown("""
         background: var(--gold);
         color: var(--bg);
         border-color: var(--gold);
-        box-shadow: 0 0 20px rgba(196,162,93,0.25);
+        box-shadow: 0 0 16px rgba(0,0,0,0.12);
     }
     .stButton > button:active {
-        background: #a8883d;
-        border-color: #a8883d;
-        color: var(--bg);
+        background: #333333;
+        border-color: #333333;
+        color: #ffffff;
     }
 
     /* ── Text inputs ── */
@@ -998,6 +1000,8 @@ st.markdown("""
 if "query_results" not in st.session_state:
     st.session_state.query_results = None
     st.session_state.query_excel = None
+if "master_df" not in st.session_state:
+    st.session_state.master_df = None
 
 
 @st.cache_data
@@ -1019,21 +1023,67 @@ if lookup is None:
 
 tab1, tab2, tab3, tab4 = st.tabs(["Custom Query", "Rate Sheet Generator", "File Format Guide", "Admin"])
 
+def master_paste_ui(key_suffix=""):
+    """Paste-in interface shared by Custom Query and Rate Sheet Generator tabs."""
+    if st.session_state.master_df is not None:
+        n = len(st.session_state.master_df.dropna(subset=[st.session_state.master_df.columns[0]]))
+        st.success(f"{n} institutions loaded.")
+        with st.expander("View / edit data"):
+            edited = st.data_editor(
+                st.session_state.master_df,
+                num_rows="dynamic",
+                use_container_width=True,
+                height=320,
+                key=f"master_editor_{key_suffix}",
+            )
+            st.session_state.master_df = edited
+        if st.button("Clear data and re-paste", key=f"clear_{key_suffix}"):
+            st.session_state.master_df = None
+            st.rerun()
+    else:
+        st.markdown(
+            "**Paste your master rates data below.** "
+            "In Excel or Google Sheets: select all (Ctrl+A / ⌘A), copy (Ctrl+C / ⌘C), then paste here."
+        )
+        pasted = st.text_area(
+            "Paste data here",
+            height=200,
+            placeholder="Paste your copied spreadsheet data here…",
+            key=f"paste_area_{key_suffix}",
+            label_visibility="collapsed",
+        )
+        if st.button("Load data →", key=f"load_{key_suffix}"):
+            if not pasted.strip():
+                st.warning("Nothing to load — paste your data first.")
+            else:
+                try:
+                    df = pd.read_csv(StringIO(pasted), sep="\t", dtype=str)
+                    df.columns = [str(c).strip() for c in df.columns]
+                    st.session_state.master_df = df
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Could not parse pasted data: {e}")
+
+
+def master_df_to_file():
+    """Convert the pasted master DataFrame to a BytesIO Excel file for processing."""
+    buf = BytesIO()
+    st.session_state.master_df.to_excel(buf, index=False)
+    buf.seek(0)
+    return buf
+
+
 with tab1:
     st.write("Filter rates by term, credit rating status, and number of results.")
 
     query_source = st.radio(
         "Data source",
-        ["Master Rates file", "Formatted Rate Sheet"],
+        ["Master Rates (pasted)", "Formatted Rate Sheet"],
         horizontal=True
     )
 
-    if query_source == "Master Rates file":
-        query_master_file = st.file_uploader(
-            "Upload Master Rates Excel file",
-            type=["xlsx"],
-            key="query_master_uploader"
-        )
+    if query_source == "Master Rates (pasted)":
+        master_paste_ui(key_suffix="query")
     else:
         formatted_sheet_file = st.file_uploader(
             "Upload Formatted Rate Sheet",
@@ -1111,8 +1161,8 @@ with tab1:
     if st.button("Run Query"):
         if not selected_terms:
             st.warning("Please select at least one term.")
-        elif query_source == "Master Rates file" and not query_master_file:
-            st.error("Please upload a Master Rates file.")
+        elif query_source == "Master Rates (pasted)" and st.session_state.master_df is None:
+            st.error("Paste your master rates data first.")
         elif query_source == "Formatted Rate Sheet" and not formatted_sheet_file:
             st.error("Please upload a Formatted Rate Sheet.")
         else:
@@ -1126,7 +1176,7 @@ with tab1:
                 log_event("sheet_query")
             else:
                 results = generate_custom_query(
-                    query_master_file,
+                    master_df_to_file(),
                     lookup,
                     selected_terms,
                     int(top_n),
@@ -1240,8 +1290,8 @@ with tab1:
                 setTimeout(() => this.textContent = 'Copy to Clipboard', 2000);
             }})()" style="
                 background: transparent;
-                color: #c4a25d;
-                border: 1px solid rgba(196,162,93,0.35);
+                color: #111111;
+                border: 1px solid rgba(0,0,0,0.25);
                 border-radius: 1px;
                 padding: 0 16px;
                 font-size: 11px;
@@ -1253,25 +1303,21 @@ with tab1:
                 height: 38px;
                 width: 100%;
                 transition: all 0.22s ease;
-            " onmouseover="this.style.background='#c4a25d';this.style.color='#0b0f1a';"
-               onmouseout="this.style.background='transparent';this.style.color='#c4a25d';"
+            " onmouseover="this.style.background='#111111';this.style.color='#ffffff';"
+               onmouseout="this.style.background='transparent';this.style.color='#111111';"
             >Copy to Clipboard</button>
             """, height=50)
 
 with tab2:
-    st.write("Upload your Master Rates file to generate the full formatted rate sheet.")
+    st.write("Paste your master rates data to generate the full formatted rate sheet.")
 
-    master_file = st.file_uploader(
-        "Upload Master Rates Excel file",
-        type=["xlsx"],
-        key="report_master_uploader"
-    )
+    master_paste_ui(key_suffix="gen")
 
     if st.button("Generate Formatted Rate Sheet"):
-        if not master_file:
-            st.error("Please upload a Master Rates file.")
+        if st.session_state.master_df is None:
+            st.error("Paste your master rates data first.")
         else:
-            output = generate_report(master_file, lookup)
+            output = generate_report(master_df_to_file(), lookup)
             excel_file = create_excel(output)
             log_event("rate_sheet")
 
