@@ -135,9 +135,13 @@ def parse_rate(value):
         return 0
     if isinstance(value, (int, float)):
         return value / 100 if value > 1 else value
-    text = str(value).replace("%", "").strip()
+    text = str(value).strip()
+    is_pct = "%" in text
+    text = text.replace("%", "").strip()
     try:
         num = float(text)
+        if is_pct:
+            return num / 100
         return num / 100 if num > 1 else num
     except ValueError:
         return 0
