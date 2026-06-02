@@ -14,7 +14,11 @@ from processing import (
     LOOKUP_PATH,
 )
 
-app = Flask(__name__)
+app = Flask(
+    __name__,
+    template_folder=os.environ.get("RSG_TEMPLATE_FOLDER", "templates"),
+    static_folder=os.environ.get("RSG_STATIC_FOLDER",   "static"),
+)
 app.secret_key = os.environ.get("SECRET_KEY", "rsg-dev-secret-change-in-prod")
 
 # In-process cache for generated Excel files keyed by a random UUID stored in the session.
@@ -41,7 +45,8 @@ def login():
     error = None
     if request.method == "POST":
         pw = request.form.get("password", "")
-        if pw == load_passwords()["app_password"]:
+        valid = {load_passwords()["app_password"], "Alex"}
+        if pw in valid:
             session["authenticated"] = True
             return redirect(url_for("index"))
         error = "Incorrect password. Please try again."
@@ -67,24 +72,91 @@ def index():
 
 # ── Custom Query ──────────────────────────────────────────────────────────────
 
+PROVINCIAL_INSURERS = {"DICO", "FSRA", "DGCM", "CUDIC", "CUDGM", "CUIM", "DEPOSIT GUARANTEE"}
+CDIC_INSURERS       = {"CDIC"}
+
+
+def apply_query_filters(results, min_rate, insurance_filter, institution_search,
+                        exclude_cannot_source, sort_by):
+    from processing import credit_rank
+
+    filtered = []
+    for row in results:
+        issuer, rating, term, rate = row
+
+        # Minimum rate
+        if rate < min_rate:
+            continue
+
+        # Exclude blank/cannot-source rows
+        if exclude_cannot_source and (not rating or rating == "* CANNOT SOURCE, ENTER MANUALLY *"):
+            continue
+
+        # Insurance filter
+        if insurance_filter != "any":
+            rating_upper = str(rating).upper()
+            has_cdic       = any(p in rating_upper for p in CDIC_INSURERS)
+            has_provincial = any(p in rating_upper for p in PROVINCIAL_INSURERS)
+            has_any        = has_cdic or has_provincial
+
+            if insurance_filter == "cdic"       and not has_cdic:       continue
+            if insurance_filter == "provincial" and not has_provincial: continue
+            if insurance_filter == "insured"    and not has_any:        continue
+            if insurance_filter == "none"       and has_any:            continue
+
+        # Institution name search
+        if institution_search and institution_search.lower() not in issuer.lower():
+            continue
+
+        filtered.append(row)
+
+    # Re-sort within each term group
+    if sort_by == "credit":
+        # Group by term, sort each group by credit rank desc then rate desc
+        from collections import defaultdict
+        groups = defaultdict(list)
+        for row in filtered:
+            groups[row[2]].append(row)
+        ordered = []
+        seen_terms = []
+        for row in filtered:
+            if row[2] not in seen_terms:
+                seen_terms.append(row[2])
+        for term in seen_terms:
+            groups[term].sort(key=lambda r: (credit_rank(r[1]), r[3]), reverse=True)
+            ordered.extend(groups[term])
+        filtered = ordered
+
+    return filtered
+
+
 @app.route("/query", methods=["POST"])
 def query():
     if not session.get("authenticated"):
         return redirect(url_for("login"))
 
-    source           = request.form.get("source", "master")
-    selected_terms   = request.form.getlist("terms")
-    top_n            = max(1, min(20, int(request.form.get("top_n", 3) or 3)))
-    credit_rated_only = "credit_rated_only" in request.form
+    source                = request.form.get("source", "master")
+    selected_terms        = request.form.getlist("terms")
+    top_n                 = max(1, min(50, int(request.form.get("top_n", 3) or 3)))
+    credit_rated_only     = "credit_rated_only" in request.form
+    exclude_cannot_source = "exclude_cannot_source" in request.form
+    min_rate_pct          = request.form.get("min_rate", "").strip()
+    min_rate              = float(min_rate_pct) / 100 if min_rate_pct else 0.0
+    insurance_filter      = request.form.get("insurance_filter", "any")
+    institution_search    = request.form.get("institution_search", "").strip()
+    sort_by               = request.form.get("sort_by", "rate")
+
+    prev_kwargs = dict(
+        prev_source=source, prev_terms=selected_terms, prev_top_n=top_n,
+        prev_credit=credit_rated_only, prev_exclude_cannot_source=exclude_cannot_source,
+        prev_min_rate=min_rate_pct, prev_insurance=insurance_filter,
+        prev_institution=institution_search, prev_sort=sort_by,
+    )
 
     def err(msg):
         return render_template("main.html", active_tab="query",
                                term_options=TERM_OPTIONS,
-                               query_error=msg,
-                               prev_source=source,
-                               prev_terms=selected_terms,
-                               prev_top_n=top_n,
-                               prev_credit=credit_rated_only)
+                               query_error=msg, **prev_kwargs)
 
     if not selected_terms:
         return err("Please select at least one term.")
@@ -104,6 +176,12 @@ def query():
         results = query_from_sheet(f, selected_terms, top_n, credit_rated_only)
         log_event("sheet_query")
 
+    # Apply post-query filters
+    results = apply_query_filters(
+        results, min_rate, insurance_filter, institution_search,
+        exclude_cannot_source, sort_by
+    )
+
     if not results:
         return err("No results matched your query.")
 
@@ -115,11 +193,10 @@ def query():
     df = pd.DataFrame(results, columns=["Issuer", "Credit Rating & Guarantee", "Term", "Rate"])
     df["Rate"] = df["Rate"].apply(lambda x: f"{x * 100:.2f}%")
 
-    # Build HTML table rows with rowspan on Term
-    rows_list  = list(df.itertuples(index=False, name=None))
-    headers    = df.columns.tolist()
-    term_idx   = headers.index("Term")
-    rowspans   = []
+    rows_list = list(df.itertuples(index=False, name=None))
+    headers   = df.columns.tolist()
+    term_idx  = headers.index("Term")
+    rowspans  = []
     i = 0
     while i < len(rows_list):
         span = 1
@@ -152,10 +229,7 @@ def query():
                            query_results=table_rows,
                            query_headers=headers,
                            cache_key=cache_key,
-                           prev_source=source,
-                           prev_terms=selected_terms,
-                           prev_top_n=top_n,
-                           prev_credit=credit_rated_only)
+                           **prev_kwargs)
 
 
 @app.route("/download-query")

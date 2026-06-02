@@ -70,24 +70,31 @@
       </div>
 
       <!-- File upload -->
-      <div id="upload-master" class="field-group
-           {% if prev_source == 'formatted' %}hidden{% endif %}">
+      <div id="upload-master" class="field-group {% if prev_source == 'formatted' %}hidden{% endif %}">
         <label class="field-label">Master Rates File</label>
         <input type="file" name="master_file" accept=".xlsx" class="file-input">
       </div>
-      <div id="upload-formatted" class="field-group
-           {% if (prev_source|default('master')) != 'formatted' %}hidden{% endif %}">
+      <div id="upload-formatted" class="field-group {% if (prev_source|default('master')) != 'formatted' %}hidden{% endif %}">
         <label class="field-label">Formatted Rate Sheet</label>
         <input type="file" name="formatted_file" accept=".xlsx" class="file-input">
       </div>
 
+      <div class="form-divider"></div>
+
       <!-- Terms -->
       <div class="field-group">
-        <label class="field-label">Select Terms</label>
+        <div class="field-label-row">
+          <label class="field-label">Terms</label>
+          <div class="term-quick-btns">
+            <button type="button" class="btn-link" onclick="selectAllTerms(true)">Select all</button>
+            <span class="field-label-sep">·</span>
+            <button type="button" class="btn-link" onclick="selectAllTerms(false)">Clear</button>
+          </div>
+        </div>
         <div class="checkbox-grid">
           {% for t in term_options %}
           <label class="check-option">
-            <input type="checkbox" name="terms" value="{{ t }}"
+            <input type="checkbox" name="terms" value="{{ t }}" class="term-check"
                    {% if t in (prev_terms|default([])) %}checked{% endif %}>
             <span>{{ t }}</span>
           </label>
@@ -95,20 +102,61 @@
         </div>
       </div>
 
-      <!-- Top N + Credit rated -->
+      <div class="form-divider"></div>
+
+      <!-- Row 1: Top N · Min rate · Sort by -->
       <div class="field-row">
-        <div class="field-group half">
-          <label class="field-label">Top N rates per term</label>
-          <input type="number" name="top_n" min="1" max="20"
-                 value="{{ prev_top_n|default(3) }}" class="input">
+        <div class="field-group">
+          <label class="field-label">Top N per term</label>
+          <input type="number" name="top_n" min="1" max="50"
+                 value="{{ prev_top_n|default(3) }}" class="input input-sm">
         </div>
-        <div class="field-group half align-end">
-          <label class="check-option">
-            <input type="checkbox" name="credit_rated_only"
-                   {% if prev_credit %}checked{% endif %}>
-            <span>Credit-rated institutions only</span>
-          </label>
+        <div class="field-group">
+          <label class="field-label">Minimum rate (%)</label>
+          <input type="number" name="min_rate" min="0" max="20" step="0.01"
+                 value="{{ prev_min_rate|default('') }}" placeholder="e.g. 3.00" class="input input-sm">
         </div>
+        <div class="field-group">
+          <label class="field-label">Sort priority</label>
+          <select name="sort_by" class="input">
+            <option value="rate"   {% if (prev_sort|default('rate'))   == 'rate'   %}selected{% endif %}>Highest rate first</option>
+            <option value="credit" {% if (prev_sort|default('rate'))   == 'credit' %}selected{% endif %}>Credit rating first</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Row 2: Insurance filter · Institution search -->
+      <div class="field-row">
+        <div class="field-group">
+          <label class="field-label">Insurance / Deposit coverage</label>
+          <select name="insurance_filter" class="input">
+            <option value="any"        {% if (prev_insurance|default('any'))  == 'any'        %}selected{% endif %}>Any</option>
+            <option value="cdic"       {% if (prev_insurance|default('any'))  == 'cdic'       %}selected{% endif %}>CDIC only</option>
+            <option value="provincial" {% if (prev_insurance|default('any'))  == 'provincial' %}selected{% endif %}>Provincial credit unions</option>
+            <option value="insured"    {% if (prev_insurance|default('any'))  == 'insured'    %}selected{% endif %}>Any insured</option>
+            <option value="none"       {% if (prev_insurance|default('any'))  == 'none'       %}selected{% endif %}>No insurance (credit rated only)</option>
+          </select>
+        </div>
+        <div class="field-group">
+          <label class="field-label">Institution name contains</label>
+          <input type="text" name="institution_search"
+                 value="{{ prev_institution|default('') }}"
+                 placeholder="e.g. Bank, Credit Union…" class="input">
+        </div>
+      </div>
+
+      <!-- Row 3: Checkboxes -->
+      <div class="field-row checkbox-row">
+        <label class="check-option">
+          <input type="checkbox" name="credit_rated_only"
+                 {% if prev_credit %}checked{% endif %}>
+          <span>Credit-rated institutions only</span>
+        </label>
+        <label class="check-option">
+          <input type="checkbox" name="exclude_cannot_source"
+                 {% if prev_exclude_cannot_source %}checked{% endif %}>
+          <span>Exclude missing rate cells</span>
+        </label>
       </div>
 
       {% if query_error %}
@@ -194,48 +242,58 @@
       </p>
     </div>
 
+    {% set guide_rows = [
+      ("Issuer",                             "Yes", "Institution name (column A). Must match lookup file.",       "Royal Bank of Canada"),
+      ("Insurance/Credit Rating Short Term", "No",  "Reference only — ratings managed in backend lookup.",       "R-1 (High)"),
+      ("Insurance/Credit Rating Long Term",  "No",  "Reference only — ratings managed in backend lookup.",       "AA"),
+      ("Take FI money?",                     "No",  "Internal reference field.",                                 "Yes"),
+      ("Available",                          "Yes", "Must say 'available' for row to be included.",              "available"),
+      ("Province",                           "No",  "Internal reference field.",                                 "ON"),
+      ("Offers USD",                         "No",  "Internal reference field.",                                 "Yes"),
+      ("As of Date",                         "No",  "Date the rates were last updated.",                         "2024-01-15"),
+      ("Cashable After 30 Days",             "Yes", "Rate for 1 Year Cashable After 30 Days term.",              "3.05%"),
+      ("Cashable After 90 Days",             "Yes", "Rate for 1 Year Cashable After 90 Days term.",              "3.10%"),
+      ("30 Days",                            "Yes", "Rate for 30 Day Fixed term.",                               "2.80%"),
+      ("60 Days",                            "Yes", "Rate for 60 Day Fixed term.",                               "2.90%"),
+      ("90 Days",                            "Yes", "Rate for 90 Day Fixed term.",                               "3.00%"),
+      ("180 Days",                           "Yes", "Rate for 180 Day Fixed term.",                              "3.10%"),
+      ("270 Days",                           "Yes", "Rate for 270 Day Fixed term.",                              "3.15%"),
+      ("1 Year Fixed",                       "Yes", "Rate for 1 Year Fixed term.",                               "3.20%"),
+      ("18 Month Fixed",                     "Yes", "Rate for 18 Month Fixed term.",                             "3.30%"),
+      ("2 Year Fixed",                       "Yes", "Rate for 2 Year Fixed term.",                               "3.40%"),
+      ("3 Year Fixed",                       "Yes", "Rate for 3 Year Fixed term.",                               "3.50%"),
+      ("4 Year Fixed",                       "Yes", "Rate for 4 Year Fixed term.",                               "3.60%"),
+      ("5 Year Fixed",                       "Yes", "Rate for 5 Year Fixed term.",                               "3.75%"),
+    ] %}
     <div class="table-wrap">
       <table class="data-table">
         <thead>
           <tr>
-            <th>Column Name</th>
-            <th>Used by App</th>
-            <th>Description</th>
-            <th>Example</th>
+            <th>Field</th>
+            {% for col, used, desc, ex in guide_rows %}
+            <th>{{ col }}</th>
+            {% endfor %}
           </tr>
         </thead>
         <tbody>
-          {% set guide_rows = [
-            ("Issuer",                                 "Yes", "Institution name (column A). Must match lookup file.",         "Royal Bank of Canada"),
-            ("Insurance/Credit Rating Short Term",     "No",  "Reference only — ratings managed in backend lookup.",         "R-1 (High)"),
-            ("Insurance/Credit Rating Long Term",      "No",  "Reference only — ratings managed in backend lookup.",         "AA"),
-            ("Take FI money?",                         "No",  "Internal reference field.",                                   "Yes"),
-            ("Available",                              "Yes", "Must say 'available' for row to be included.",                "available"),
-            ("Province",                               "No",  "Internal reference field.",                                   "ON"),
-            ("Offers USD",                             "No",  "Internal reference field.",                                   "Yes"),
-            ("As of Date",                             "No",  "Date the rates were last updated.",                           "2024-01-15"),
-            ("Cashable After 30 Days",                 "Yes", "Rate for 1 Year Cashable After 30 Days term.",                "3.05%"),
-            ("Cashable After 90 Days",                 "Yes", "Rate for 1 Year Cashable After 90 Days term.",                "3.10%"),
-            ("30 Days",                                "Yes", "Rate for 30 Day Fixed term.",                                 "2.80%"),
-            ("60 Days",                                "Yes", "Rate for 60 Day Fixed term.",                                 "2.90%"),
-            ("90 Days",                                "Yes", "Rate for 90 Day Fixed term.",                                 "3.00%"),
-            ("180 Days",                               "Yes", "Rate for 180 Day Fixed term.",                                "3.10%"),
-            ("270 Days",                               "Yes", "Rate for 270 Day Fixed term.",                                "3.15%"),
-            ("1 Year Fixed",                           "Yes", "Rate for 1 Year Fixed term.",                                 "3.20%"),
-            ("18 Month Fixed",                         "Yes", "Rate for 18 Month Fixed term.",                               "3.30%"),
-            ("2 Year Fixed",                           "Yes", "Rate for 2 Year Fixed term.",                                 "3.40%"),
-            ("3 Year Fixed",                           "Yes", "Rate for 3 Year Fixed term.",                                 "3.50%"),
-            ("4 Year Fixed",                           "Yes", "Rate for 4 Year Fixed term.",                                 "3.60%"),
-            ("5 Year Fixed",                           "Yes", "Rate for 5 Year Fixed term.",                                 "3.75%"),
-          ] %}
-          {% for col, used, desc, ex in guide_rows %}
           <tr>
-            <td class="col-name">{{ col }}</td>
+            <td class="col-name">Used by App</td>
+            {% for col, used, desc, ex in guide_rows %}
             <td class="{% if used == 'Yes' %}cell-yes{% else %}cell-no{% endif %}">{{ used }}</td>
-            <td class="col-desc">{{ desc }}</td>
-            <td class="col-ex">{{ ex }}</td>
+            {% endfor %}
           </tr>
-          {% endfor %}
+          <tr>
+            <td class="col-name">Description</td>
+            {% for col, used, desc, ex in guide_rows %}
+            <td class="col-desc">{{ desc }}</td>
+            {% endfor %}
+          </tr>
+          <tr>
+            <td class="col-name">Example</td>
+            {% for col, used, desc, ex in guide_rows %}
+            <td class="col-ex">{{ ex }}</td>
+            {% endfor %}
+          </tr>
         </tbody>
       </table>
     </div>
@@ -320,15 +378,15 @@
       <div class="stat-grid">
         <div class="stat-card">
           <p class="stat-label">Rate Sheets Generated</p>
-          <p class="stat-value">{{ stats.total_rate_sheets }}</p>
+          <p class="stat-value">{{ (stats or {}).get('total_rate_sheets', 0) }}</p>
         </div>
         <div class="stat-card">
           <p class="stat-label">Custom Queries Run</p>
-          <p class="stat-value">{{ stats.total_queries }}</p>
+          <p class="stat-value">{{ (stats or {}).get('total_queries', 0) }}</p>
         </div>
         <div class="stat-card">
           <p class="stat-label">Total Actions</p>
-          <p class="stat-value">{{ stats.total_rate_sheets + stats.total_queries }}</p>
+          <p class="stat-value">{{ ((stats or {}).get('total_rate_sheets', 0)) + ((stats or {}).get('total_queries', 0)) }}</p>
         </div>
       </div>
 

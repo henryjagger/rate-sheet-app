@@ -8,9 +8,20 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.cell.rich_text import CellRichText, TextBlock
 from openpyxl.cell.text import InlineFont
 
-LOOKUP_PATH = "institution_lookup.xlsx"
-PASSWORDS_PATH = "passwords.json"
-STATS_PATH = "data/stats.json"
+import shutil
+
+# When bundled as a desktop app, launcher.py sets these env vars so that
+# writable files live in ~/.ratesheet/ rather than inside the read-only bundle.
+LOOKUP_PATH    = os.environ.get("RSG_LOOKUP_PATH",    "institution_lookup.xlsx")
+PASSWORDS_PATH = os.environ.get("RSG_PASSWORDS_PATH", "passwords.json")
+STATS_PATH     = os.environ.get("RSG_STATS_PATH",     os.path.join("data", "stats.json"))
+
+# If running from the bundle and the lookup file hasn't been copied to the
+# writable data dir yet, seed it from the bundled copy.
+_bundle_lookup = os.environ.get("RSG_BUNDLE_LOOKUP")
+if _bundle_lookup and not os.path.exists(LOOKUP_PATH) and os.path.exists(_bundle_lookup):
+    os.makedirs(os.path.dirname(LOOKUP_PATH), exist_ok=True) if os.path.dirname(LOOKUP_PATH) else None
+    shutil.copy2(_bundle_lookup, LOOKUP_PATH)
 
 TERM_COLUMNS = [
     ("5 Year Fixed",                 "5 year fixed",          "long"),
@@ -83,7 +94,9 @@ def load_stats():
 
 
 def save_stats(stats):
-    os.makedirs(os.path.dirname(STATS_PATH), exist_ok=True)
+    parent = os.path.dirname(STATS_PATH)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
     with open(STATS_PATH, "w") as f:
         json.dump(stats, f)
 

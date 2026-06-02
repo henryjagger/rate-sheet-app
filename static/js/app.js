@@ -1,3 +1,8 @@
+// Select / deselect all term checkboxes
+function selectAllTerms(checked) {
+  document.querySelectorAll('.term-check').forEach(cb => { cb.checked = checked; });
+}
+
 // Tab switching
 function showTab(name) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));

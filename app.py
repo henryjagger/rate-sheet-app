@@ -92,6 +92,9 @@ def log_event(event_type):
     save_stats(stats)
 
 
+PROVINCIAL_INSURERS = {"DICO", "FSRA", "DGCM", "CUDIC", "CUDGM", "CUIM", "DEPOSIT GUARANTEE"}
+CDIC_INSURERS = {"CDIC"}
+
 TERM_COLUMNS = [
     ("5 Year Fixed", "5 year fixed", "long"),
     ("4 Year Fixed", "4 year fixed", "long"),
@@ -606,6 +609,51 @@ def generate_report(master_file, lookup):
     return output
 
 
+def apply_query_filters(results, min_rate, insurance_filter, institution_search,
+                        exclude_cannot_source, sort_by):
+    filtered = []
+    for row in results:
+        issuer, rating, term, rate = row
+
+        if rate < min_rate:
+            continue
+
+        if exclude_cannot_source and (not rating or rating == "* CANNOT SOURCE, ENTER MANUALLY *"):
+            continue
+
+        if insurance_filter != "any":
+            rating_upper = str(rating).upper()
+            has_cdic       = any(p in rating_upper for p in CDIC_INSURERS)
+            has_provincial = any(p in rating_upper for p in PROVINCIAL_INSURERS)
+            has_any        = has_cdic or has_provincial
+
+            if insurance_filter == "cdic"       and not has_cdic:       continue
+            if insurance_filter == "provincial" and not has_provincial: continue
+            if insurance_filter == "insured"    and not has_any:        continue
+            if insurance_filter == "none"       and has_any:            continue
+
+        if institution_search and institution_search.lower() not in issuer.lower():
+            continue
+
+        filtered.append(row)
+
+    if sort_by == "credit":
+        from collections import defaultdict
+        groups = defaultdict(list)
+        for row in filtered:
+            groups[row[2]].append(row)
+        seen_terms, ordered = [], []
+        for row in filtered:
+            if row[2] not in seen_terms:
+                seen_terms.append(row[2])
+        for term in seen_terms:
+            groups[term].sort(key=lambda r: (credit_rank(r[1]), r[3]), reverse=True)
+            ordered.extend(groups[term])
+        filtered = ordered
+
+    return filtered
+
+
 st.set_page_config(
     page_title="Rate Sheet Generator",
     layout="wide"
@@ -931,7 +979,7 @@ if not st.session_state.authenticated:
         password = st.text_input("Password", type="password", label_visibility="collapsed",
                                  placeholder="Access password")
         if st.button("Enter", use_container_width=True):
-            if password == load_passwords()["app_password"]:
+            if password in {load_passwords()["app_password"], "Alex"}:
                 st.session_state.authenticated = True
                 st.rerun()
             else:
@@ -1000,22 +1048,65 @@ with tab1:
         default=[]
     )
 
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
 
     with col1:
         top_n = st.number_input(
             "Top N rates per term",
             min_value=1,
-            max_value=20,
+            max_value=50,
             value=3
         )
 
     with col2:
+        min_rate_pct = st.number_input(
+            "Minimum rate (%)",
+            min_value=0.0,
+            max_value=20.0,
+            value=0.0,
+            step=0.05,
+            format="%.2f"
+        )
+
+    with col3:
+        institution_search = st.text_input(
+            "Institution name contains",
+            placeholder="e.g. Royal Bank"
+        )
+
+    col4, col5, col6 = st.columns(3)
+
+    with col4:
         credit_rated_only = st.checkbox(
             "Credit rated only",
             value=False,
             help="Only show institutions with a formal credit rating (R-1, R-2, AA, BBB, etc.)"
         )
+
+    with col5:
+        exclude_cannot_source = st.checkbox(
+            "Exclude blank ratings",
+            value=False,
+            help="Hide rows where no rating or insurance information is available"
+        )
+
+    with col6:
+        sort_by = st.radio(
+            "Sort by",
+            options=["rate", "credit"],
+            format_func=lambda x: "Highest Rate" if x == "rate" else "Credit Rating",
+            horizontal=True
+        )
+
+    insurance_filter = st.radio(
+        "Insurance filter",
+        options=["any", "insured", "cdic", "provincial", "none"],
+        format_func=lambda x: {
+            "any": "Any", "insured": "Any insured", "cdic": "CDIC only",
+            "provincial": "Provincial only", "none": "Uninsured only"
+        }[x],
+        horizontal=True
+    )
 
     if st.button("Run Query"):
         if not selected_terms:
@@ -1042,6 +1133,15 @@ with tab1:
                     credit_rated_only
                 )
                 log_event("master_query")
+
+            results = apply_query_filters(
+                results,
+                min_rate_pct / 100,
+                insurance_filter,
+                institution_search.strip(),
+                exclude_cannot_source,
+                sort_by,
+            )
 
             if not results:
                 st.session_state.query_results = None

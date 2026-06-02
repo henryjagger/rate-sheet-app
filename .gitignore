@@ -5,3 +5,8 @@ __pycache__/
 passwords.json
 data/
 ~$*
+build/
+dist/
+*.ico
+icon.iconset/
+.claude/
