@@ -623,6 +623,8 @@ def generate_report(master_file, lookup):
 
 def apply_query_filters(results, min_rate, insurance_filter, institution_search,
                         exclude_cannot_source, sort_by):
+    from collections import defaultdict
+
     filtered = []
     for row in results:
         issuer, rating, term, rate = row
@@ -649,21 +651,24 @@ def apply_query_filters(results, min_rate, insurance_filter, institution_search,
 
         filtered.append(row)
 
-    if sort_by == "credit":
-        from collections import defaultdict
-        groups = defaultdict(list)
-        for row in filtered:
-            groups[row[2]].append(row)
-        seen_terms, ordered = [], []
-        for row in filtered:
-            if row[2] not in seen_terms:
-                seen_terms.append(row[2])
-        for term in seen_terms:
-            groups[term].sort(key=lambda r: (credit_rank(r[1]), r[3]), reverse=True)
-            ordered.extend(groups[term])
-        filtered = ordered
+    # Always re-sort within each term group so special rates slot into the
+    # correct position rather than appearing at the end.
+    groups = defaultdict(list)
+    seen_terms = []
+    for row in filtered:
+        if row[2] not in seen_terms:
+            seen_terms.append(row[2])
+        groups[row[2]].append(row)
 
-    return filtered
+    ordered = []
+    for term in seen_terms:
+        if sort_by == "credit":
+            groups[term].sort(key=lambda r: (credit_rank(r[1]), r[3]), reverse=True)
+        else:
+            groups[term].sort(key=lambda r: r[3], reverse=True)
+        ordered.extend(groups[term])
+
+    return ordered
 
 
 st.set_page_config(
@@ -1506,6 +1511,18 @@ with tab2:
         else:
             output = generate_report(get_master_file(), lookup) if has_master else []
             output = output + get_special_rate_rows()
+            # Merge into correct order: TERM_COLUMNS sequence, rate desc within each term
+            from collections import defaultdict
+            _term_rank = {t[0]: i for i, t in enumerate(TERM_COLUMNS)}
+            _groups = defaultdict(list)
+            for row in output:
+                _groups[row[2]].append(row)
+            output = []
+            for tc in TERM_COLUMNS:
+                if tc[0] in _groups:
+                    output.extend(sorted(_groups.pop(tc[0]), key=lambda r: r[3], reverse=True))
+            for rows in _groups.values():  # any terms not in TERM_COLUMNS
+                output.extend(sorted(rows, key=lambda r: r[3], reverse=True))
             excel_file = create_excel(output)
             log_event("rate_sheet")
 
