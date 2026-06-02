@@ -999,10 +999,10 @@ st.markdown("""
 
 MASTER_GRID_COLS = [
     "Issuer", "Available",
-    "5 Year Fixed", "4 Year Fixed", "3 Year Fixed", "2 Year Fixed",
-    "18 Month Fixed", "1 Year Fixed",
-    "270 Days", "180 Days", "90 Days", "60 Days", "30 Days",
-    "Cashable After 90 Days", "Cashable After 30 Days",
+    "Cashable After 30 Days", "Cashable After 90 Days",
+    "30 Days", "60 Days", "90 Days", "180 Days", "270 Days",
+    "1 Year Fixed", "18 Month Fixed",
+    "2 Year Fixed", "3 Year Fixed", "4 Year Fixed", "5 Year Fixed",
 ]
 
 def empty_master_df():
@@ -1071,21 +1071,21 @@ with tab_data:
         use_container_width=True,
         height=520,
         column_config={
-            "Issuer":                  st.column_config.TextColumn("Issuer",                  width="large"),
-            "Available":               st.column_config.TextColumn("Available",               width="small"),
-            "5 Year Fixed":            st.column_config.TextColumn("5 Yr Fixed",              width="medium"),
-            "4 Year Fixed":            st.column_config.TextColumn("4 Yr Fixed",              width="medium"),
-            "3 Year Fixed":            st.column_config.TextColumn("3 Yr Fixed",              width="medium"),
-            "2 Year Fixed":            st.column_config.TextColumn("2 Yr Fixed",              width="medium"),
-            "18 Month Fixed":          st.column_config.TextColumn("18 Mo Fixed",             width="medium"),
-            "1 Year Fixed":            st.column_config.TextColumn("1 Yr Fixed",              width="medium"),
-            "270 Days":                st.column_config.TextColumn("270 Days",                width="medium"),
-            "180 Days":                st.column_config.TextColumn("180 Days",                width="medium"),
-            "90 Days":                 st.column_config.TextColumn("90 Days",                 width="medium"),
-            "60 Days":                 st.column_config.TextColumn("60 Days",                 width="medium"),
-            "30 Days":                 st.column_config.TextColumn("30 Days",                 width="medium"),
-            "Cashable After 90 Days":  st.column_config.TextColumn("Cash. 90 Days",           width="medium"),
-            "Cashable After 30 Days":  st.column_config.TextColumn("Cash. 30 Days",           width="medium"),
+            "Issuer":                  st.column_config.TextColumn("Issuer",            width="large"),
+            "Available":               st.column_config.TextColumn("Available",         width="small"),
+            "Cashable After 30 Days":  st.column_config.TextColumn("Cash. 30 Days",     width="medium"),
+            "Cashable After 90 Days":  st.column_config.TextColumn("Cash. 90 Days",     width="medium"),
+            "30 Days":                 st.column_config.TextColumn("30 Days",            width="medium"),
+            "60 Days":                 st.column_config.TextColumn("60 Days",            width="medium"),
+            "90 Days":                 st.column_config.TextColumn("90 Days",            width="medium"),
+            "180 Days":                st.column_config.TextColumn("180 Days",           width="medium"),
+            "270 Days":                st.column_config.TextColumn("270 Days",           width="medium"),
+            "1 Year Fixed":            st.column_config.TextColumn("1 Yr Fixed",         width="medium"),
+            "18 Month Fixed":          st.column_config.TextColumn("18 Mo Fixed",        width="medium"),
+            "2 Year Fixed":            st.column_config.TextColumn("2 Yr Fixed",         width="medium"),
+            "3 Year Fixed":            st.column_config.TextColumn("3 Yr Fixed",         width="medium"),
+            "4 Year Fixed":            st.column_config.TextColumn("4 Yr Fixed",         width="medium"),
+            "5 Year Fixed":            st.column_config.TextColumn("5 Yr Fixed",         width="medium"),
         },
     )
     st.session_state.master_grid = edited
