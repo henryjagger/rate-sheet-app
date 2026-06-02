@@ -1073,19 +1073,23 @@ def get_special_rate_rows(selected_terms=None):
     df = st.session_state.special_rates.copy()
     rows = []
     for _, row in df.iterrows():
-        issuer = str(row.get("Issuer", "")).strip()
-        if not issuer or issuer == "nan":
+        def _s(col):
+            v = row.get(col, "")
+            return "" if (v is None or (isinstance(v, float) and pd.isna(v))) else str(v).strip()
+        issuer = _s("Issuer")
+        if not issuer or issuer.lower() == "nan":
             continue
-        term = str(row.get("Term", "")).strip()
-        if not term or term == "nan":
+        term = _s("Term")
+        if not term or term.lower() == "nan":
             continue
-        rate = parse_rate(str(row.get("Rate", "")))
+        rate = parse_rate(_s("Rate"))
         if rate < 0.01:
             continue
         if selected_terms is not None and term not in selected_terms:
             continue
-        rating = str(row.get("Credit Rating", "")).strip()
-        rating = "" if rating == "nan" else rating
+        rating = _s("Credit Rating")
+        if rating.lower() == "nan":
+            rating = ""
         rows.append([issuer, rating, term, rate])
     return rows
 
@@ -1213,8 +1217,10 @@ with tab_data:
 
     term_options_list = [t[0] for t in TERM_COLUMNS]
     st.caption("Term options: " + "  ·  ".join(term_options_list))
+
+    _sp_snapshot = st.session_state.special_rates.copy()
     special_edited = st.data_editor(
-        st.session_state.special_rates,
+        _sp_snapshot,
         num_rows="dynamic",
         use_container_width=True,
         height=320,
@@ -1224,9 +1230,13 @@ with tab_data:
             "Term":          st.column_config.TextColumn("Term",           width="medium"),
             "Rate":          st.column_config.TextColumn("Rate",           width="small"),
         },
-        key="special_rates_editor",
     )
-    st.session_state.special_rates = special_edited
+    # Only write back if something actually changed to avoid feedback loops
+    try:
+        if not special_edited.equals(_sp_snapshot):
+            st.session_state.special_rates = special_edited.astype(str).fillna("")
+    except Exception:
+        st.session_state.special_rates = special_edited
 
 
 with tab1:
@@ -1482,6 +1492,11 @@ with tab2:
         st.info(f"{n_special} special rate{'s' if n_special != 1 else ''} entered.")
     else:
         st.warning("No data entered yet — go to the **Master Data** tab and add rates.")
+
+    special_preview = get_special_rate_rows()
+    if special_preview:
+        st.info(f"{len(special_preview)} special rate{'s' if len(special_preview) != 1 else ''} will be included: " +
+                ", ".join(f"{r[0]} ({r[2]})" for r in special_preview))
 
     if st.button("Generate Formatted Rate Sheet"):
         has_master  = master_row_count() > 0
