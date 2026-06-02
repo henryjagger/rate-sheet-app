@@ -59,7 +59,7 @@ def load_passwords():
         if os.path.exists(PASSWORDS_PATH):
             with open(PASSWORDS_PATH) as f:
                 return json.load(f)
-    return {"app_password": "Locarno", "admin_password": "Admin1234"}
+    return {"app_password": "CMG", "admin_password": "Admin1234"}
 
 
 def save_passwords(app_pw, admin_pw):
@@ -981,7 +981,7 @@ if not st.session_state.authenticated:
         password = st.text_input("Password", type="password", label_visibility="collapsed",
                                  placeholder="Access password")
         if st.button("Enter", use_container_width=True):
-            if password in {load_passwords()["app_password"], "Alex"}:
+            if password in {load_passwords()["app_password"], "CMG"}:
                 st.session_state.authenticated = True
                 st.rerun()
             else:
