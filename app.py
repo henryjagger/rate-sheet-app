@@ -1059,27 +1059,37 @@ def get_master_file():
 SPECIAL_RATES_COLS = ["Issuer", "Credit Rating", "Term", "Rate"]
 
 def empty_special_rates_df():
-    return pd.DataFrame("", index=range(10), columns=SPECIAL_RATES_COLS)
+    return pd.DataFrame({
+        "Issuer":        pd.Series([""] * 10, dtype=str),
+        "Credit Rating": pd.Series([""] * 10, dtype=str),
+        "Term":          pd.Series([""] * 10, dtype=str),
+        "Rate":          pd.Series([""] * 10, dtype=str),
+    })
 
 def get_special_rate_rows(selected_terms=None):
     df = st.session_state.special_rates.copy()
     rows = []
     for _, row in df.iterrows():
-        issuer = str(row["Issuer"]).strip()
-        if not issuer or issuer in ("", "nan"):
+        issuer = str(row.get("Issuer", "")).strip()
+        if not issuer or issuer == "nan":
             continue
-        term = str(row["Term"]).strip()
-        if not term or term in ("", "nan"):
+        term = str(row.get("Term", "")).strip()
+        if not term or term == "nan":
             continue
-        rate = parse_rate(row["Rate"])
+        rate = parse_rate(str(row.get("Rate", "")))
         if rate < 0.01:
             continue
         if selected_terms is not None and term not in selected_terms:
             continue
-        rating = str(row["Credit Rating"]).strip()
+        rating = str(row.get("Credit Rating", "")).strip()
         rating = "" if rating == "nan" else rating
         rows.append([issuer, rating, term, rate])
     return rows
+
+@st.cache_resource
+def _shared_rate_data():
+    return {"master_grid": None, "master_cols": None,
+            "special_rates": None, "saved_at": None}
 
 if "query_results" not in st.session_state:
     st.session_state.query_results = None
@@ -1112,6 +1122,28 @@ tab_data, tab1, tab2, tab3, tab4 = st.tabs([
 ])
 
 with tab_data:
+    # ── Save / load shared across all sessions ──────────────────────────────
+    shared = _shared_rate_data()
+    save_col, load_col, _ = st.columns([1, 2, 5])
+    with save_col:
+        if st.button("💾 Save for Team", help="Saves current master rates and special rates so any team member can load them."):
+            shared["master_grid"]  = st.session_state.master_grid.to_dict(orient="records")
+            shared["master_cols"]  = list(st.session_state.master_grid.columns)
+            shared["special_rates"] = st.session_state.special_rates.to_dict(orient="records")
+            shared["saved_at"]     = datetime.now().strftime("%b %d, %Y at %I:%M %p")
+            st.success("Saved! Team members can now click 'Use Last' to load this data.")
+    with load_col:
+        if shared.get("saved_at"):
+            if st.button(f"⟳ Use Last  —  {shared['saved_at']}", help="Load the last saved master rates and special rates."):
+                st.session_state.master_grid   = pd.DataFrame(
+                    shared["master_grid"], columns=shared["master_cols"]
+                ).astype(str).fillna("")
+                st.session_state.special_rates = pd.DataFrame(
+                    shared["special_rates"], columns=SPECIAL_RATES_COLS
+                ).astype(str).fillna("")
+                st.rerun()
+
+    st.markdown("---")
     st.caption(
         "Enter your master rates below. "
         "To paste from Excel or Google Sheets: copy your data (Ctrl+C / ⌘C), "
@@ -1177,6 +1209,7 @@ with tab_data:
             st.rerun()
 
     term_options_list = [t[0] for t in TERM_COLUMNS]
+    st.caption("Term options: " + "  ·  ".join(term_options_list))
     special_edited = st.data_editor(
         st.session_state.special_rates,
         num_rows="dynamic",
@@ -1185,9 +1218,10 @@ with tab_data:
         column_config={
             "Issuer":        st.column_config.TextColumn("Issuer",         width="large"),
             "Credit Rating": st.column_config.TextColumn("Credit Rating",  width="large"),
-            "Term":          st.column_config.SelectboxColumn("Term", options=term_options_list, width="medium"),
+            "Term":          st.column_config.TextColumn("Term",           width="medium"),
             "Rate":          st.column_config.TextColumn("Rate",           width="small"),
         },
+        key="special_rates_editor",
     )
     st.session_state.special_rates = special_edited
 
@@ -1437,16 +1471,22 @@ with tab2:
     st.write("Generate a formatted rate sheet from the data entered in the Master Data tab.")
 
     n = master_row_count()
+    n_special = len(get_special_rate_rows())
     if n:
-        st.info(f"{n} institutions loaded from Master Data tab.")
+        st.info(f"{n} institutions loaded from Master Data tab." +
+                (f"  ·  {n_special} special rate{'s' if n_special != 1 else ''}." if n_special else ""))
+    elif n_special:
+        st.info(f"{n_special} special rate{'s' if n_special != 1 else ''} entered.")
     else:
-        st.warning("No data entered yet — go to the **Master Data** tab and paste your rates.")
+        st.warning("No data entered yet — go to the **Master Data** tab and add rates.")
 
     if st.button("Generate Formatted Rate Sheet"):
-        if master_row_count() == 0:
-            st.error("No data entered — go to the Master Data tab and paste your rates first.")
+        has_master  = master_row_count() > 0
+        has_special = len(get_special_rate_rows()) > 0
+        if not has_master and not has_special:
+            st.error("No data entered — add master rates or special rates in the Master Data tab first.")
         else:
-            output = generate_report(get_master_file(), lookup)
+            output = generate_report(get_master_file(), lookup) if has_master else []
             output = output + get_special_rate_rows()
             excel_file = create_excel(output)
             log_event("rate_sheet")
