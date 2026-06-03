@@ -237,33 +237,39 @@ def build_copy_html(rows, style=None):
 
 
 def _copy_button_component(html_str, btn_label="Copy to Clipboard"):
-    """Render a JS-powered copy button for the given HTML string."""
-    def _esc(s):
-        return s.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
-    s = load_table_style()
+    """Render a JS copy button. Uses json.dumps() to safely encode the HTML —
+    handles all special characters (quotes, backslashes, newlines, etc.)."""
+    import json as _json
+    html_js  = _json.dumps(html_str)        # produces a valid JS string literal
+    label_js = _json.dumps(btn_label)
     components.html(f"""
-    <button onclick="(async () => {{
+    <button id="cpbtn" onclick="(async () => {{
+        const content = {html_js};
         try {{
             await navigator.clipboard.write([new ClipboardItem({{
-                'text/html':  new Blob([`{_esc(html_str)}`], {{type:'text/html'}}),
-                'text/plain': new Blob([`{_esc(html_str)}`], {{type:'text/plain'}}),
+                'text/html':  new Blob([content], {{type:'text/html'}}),
+                'text/plain': new Blob([content], {{type:'text/plain'}}),
             }})]);
         }} catch(e) {{
             const t = document.createElement('textarea');
-            t.value = `{_esc(html_str)}`;
+            t.value = content;
             document.body.appendChild(t); t.select();
             document.execCommand('copy'); document.body.removeChild(t);
         }}
-        this.textContent = '✓ Copied!';
-        setTimeout(() => this.textContent = '{btn_label}', 2000);
-    }})()" style="
+        document.getElementById('cpbtn').textContent = '✓ Copied!';
+        setTimeout(() => document.getElementById('cpbtn').textContent = {label_js}, 2000);
+    }})()">
+    {btn_label}
+    </button>
+    <style>
+    #cpbtn {{
         background:transparent;color:#111111;border:1px solid rgba(0,0,0,0.25);
         border-radius:1px;padding:0 16px;font-size:11px;font-family:Inter,sans-serif;
         font-weight:600;text-transform:uppercase;letter-spacing:0.14em;
-        cursor:pointer;height:38px;width:100%;transition:all 0.22s ease;"
-    onmouseover="this.style.background='#111111';this.style.color='#ffffff';"
-    onmouseout="this.style.background='transparent';this.style.color='#111111';"
-    >{btn_label}</button>
+        cursor:pointer;height:38px;width:100%;transition:all 0.22s ease;
+    }}
+    #cpbtn:hover {{ background:#111111; color:#ffffff; }}
+    </style>
     """, height=50)
 
 
