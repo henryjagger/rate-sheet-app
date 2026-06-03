@@ -186,10 +186,11 @@ def build_copy_html(rows, style=None):
     b_c = "</b>" if h_bold else ""
 
     # Outlook treats cell content as paragraphs; paragraph align overrides td align.
-    # Wrapping in <p align="center"> is the only reliable centering fix for Outlook.
+    # color must be on the <p> too — Outlook's Normal paragraph style overrides
+    # <font color> when no explicit paragraph-level color is set.
     def _p(content, color):
         return (
-            f"<p align='center' style='margin:0;padding:0;text-align:center;'>"
+            f"<p align='center' style='margin:0;padding:0;text-align:center;color:{color};'>"
             f"<font face='{b_fnt}' color='{color}'>{content}</font>"
             f"</p>"
         )
