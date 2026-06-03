@@ -237,40 +237,51 @@ def build_copy_html(rows, style=None):
 
 
 def _copy_button_component(html_str, btn_label="Copy to Clipboard"):
-    """Render a JS copy button. Uses json.dumps() to safely encode the HTML —
-    handles all special characters (quotes, backslashes, newlines, etc.)."""
+    """
+    Render a copy-to-clipboard button.
+
+    Critical: the HTML string MUST go into a <script> variable, never
+    inside an HTML attribute (onclick="..."). HTML attributes are parsed
+    as HTML first, so any '<' or '>' in the JSON breaks rendering and
+    spills table content onto the page.
+    """
     import json as _json
-    html_js  = _json.dumps(html_str)        # produces a valid JS string literal
+    html_js  = _json.dumps(html_str)   # safe JS string literal
     label_js = _json.dumps(btn_label)
-    components.html(f"""
-    <button id="cpbtn" onclick="(async () => {{
-        const content = {html_js};
-        try {{
-            await navigator.clipboard.write([new ClipboardItem({{
-                'text/html':  new Blob([content], {{type:'text/html'}}),
-                'text/plain': new Blob([content], {{type:'text/plain'}}),
-            }})]);
-        }} catch(e) {{
-            const t = document.createElement('textarea');
-            t.value = content;
-            document.body.appendChild(t); t.select();
-            document.execCommand('copy'); document.body.removeChild(t);
-        }}
-        document.getElementById('cpbtn').textContent = '✓ Copied!';
-        setTimeout(() => document.getElementById('cpbtn').textContent = {label_js}, 2000);
-    }})()">
-    {btn_label}
-    </button>
-    <style>
-    #cpbtn {{
-        background:transparent;color:#111111;border:1px solid rgba(0,0,0,0.25);
-        border-radius:1px;padding:0 16px;font-size:11px;font-family:Inter,sans-serif;
-        font-weight:600;text-transform:uppercase;letter-spacing:0.14em;
-        cursor:pointer;height:38px;width:100%;transition:all 0.22s ease;
+    components.html(f"""<!DOCTYPE html>
+<html><head><style>
+#cpbtn {{
+    background:transparent;color:#111111;border:1px solid rgba(0,0,0,0.25);
+    border-radius:1px;padding:0 16px;font-size:11px;font-family:Inter,sans-serif;
+    font-weight:600;text-transform:uppercase;letter-spacing:0.14em;
+    cursor:pointer;height:38px;width:100%;transition:all 0.22s ease;
+}}
+#cpbtn:hover {{ background:#111111; color:#ffffff; }}
+</style></head><body>
+<script>
+/* Store outside onclick so <> chars never touch an HTML attribute */
+var _copyContent = {html_js};
+var _copyLabel   = {label_js};
+async function doCopy() {{
+    try {{
+        await navigator.clipboard.write([new ClipboardItem({{
+            "text/html":  new Blob([_copyContent], {{type:"text/html"}}),
+            "text/plain": new Blob([_copyContent], {{type:"text/plain"}}),
+        }})]);
+    }} catch(e) {{
+        var t = document.createElement("textarea");
+        t.value = _copyContent;
+        document.body.appendChild(t); t.select();
+        document.execCommand("copy"); document.body.removeChild(t);
     }}
-    #cpbtn:hover {{ background:#111111; color:#ffffff; }}
-    </style>
-    """, height=50)
+    document.getElementById("cpbtn").textContent = "✓ Copied!";
+    setTimeout(function(){{
+        document.getElementById("cpbtn").textContent = _copyLabel;
+    }}, 2000);
+}}
+</script>
+<button id="cpbtn" onclick="doCopy()">{btn_label}</button>
+</body></html>""", height=50)
 
 
 @st.cache_resource
