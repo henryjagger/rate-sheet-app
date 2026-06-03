@@ -639,9 +639,9 @@ def display_name_with_min_max(raw_name, lookup):
     if min_amt and max_amt:
         label += f" ({min_amt}-{max_amt})"
     elif min_amt:
-        label += f" (*Min {min_amt})"
+        label += f" (Min {min_amt})"
     elif max_amt:
-        label += f" (*Max {max_amt})"
+        label += f" (Max {max_amt})"
 
     return label
 
@@ -818,7 +818,7 @@ def _base_issuer_key(display_name):
 def _parse_minimum(display_name):
     """Extract the minimum dollar amount from a display name. Lower = better for client."""
     import re
-    m = re.search(r'\*Min\s+\$?([\d.]+)\s*([KMBkmb]?)', str(display_name))
+    m = re.search(r'\*?Min\s+\$?([\d.]+)\s*([KMBkmb]?)', str(display_name))
     if not m:
         return 0
     num = float(m.group(1))
