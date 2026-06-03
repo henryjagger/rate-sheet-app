@@ -503,23 +503,25 @@ PROVINCIAL_INSURERS = {"DICO", "FSRA", "DGCM", "CUDIC", "CUDGM", "CUIM", "DEPOSI
 CDIC_INSURERS = {"CDIC"}
 
 TERM_COLUMNS = [
+    # ── Fixed terms (longest to shortest) ─────────────────────────────────
     ("5 Year Fixed",                    "5 year fixed",                    "long"),
     ("4 Year Fixed",                    "4 year fixed",                    "long"),
     ("3 Year Fixed",                    "3 year fixed",                    "long"),
     ("2 Year Fixed",                    "2 year fixed",                    "long"),
-    ("2 Year Cashable After 365 Days",  "2 year cashable after 365 days",  "long"),
     ("18 Month Fixed",                  "18 month fixed",                  "long"),
     ("1 Year Fixed",                    "1 year fixed",                    "short"),
     ("270 Day Fixed",                   "270 days",                        "short"),
-    ("Cashable After 270 Days",         "cashable after 270 days",         "short"),
     ("180 Day Fixed",                   "180 days",                        "short"),
-    ("Cashable After 180 Days",         "cashable after 180 days",         "short"),
     ("120 Day Fixed",                   "120 days",                        "short"),
     ("90 Day Fixed",                    "90 days",                         "short"),
-    ("Cashable After 90 Days",          "cashable after 90 days",          "short"),
     ("60 Day Fixed",                    "60 days",                         "short"),
-    ("Cashable After 60 Days",          "cashable after 60 days",          "short"),
     ("30 Day Fixed",                    "30 days",                         "short"),
+    # ── Cashables (longest to shortest) ───────────────────────────────────
+    ("2 Year Cashable After 365 Days",  "2 year cashable after 365 days",  "long"),
+    ("Cashable After 270 Days",         "cashable after 270 days",         "short"),
+    ("Cashable After 180 Days",         "cashable after 180 days",         "short"),
+    ("Cashable After 90 Days",          "cashable after 90 days",          "short"),
+    ("Cashable After 60 Days",          "cashable after 60 days",          "short"),
     ("Cashable After 30 Days",          "cashable after 30 days",          "short"),
 ]
 
