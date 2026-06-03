@@ -17,6 +17,34 @@ PRIMARY_LOOKUP_PATH = "institution_lookup_primary.xlsx"
 LOOKUP_PATH         = "institution_lookup.xlsx"   # backup
 HISTORY_PATH       = os.path.join(os.path.expanduser("~"), ".ratesheet", "special_rates_history.json")
 TABLE_STYLE_PATH   = os.path.join(os.path.expanduser("~"), ".ratesheet", "table_style.json")
+APP_SETTINGS_PATH  = os.path.join(os.path.expanduser("~"), ".ratesheet", "app_settings.json")
+
+_DEFAULT_APP_SETTINGS = {
+    "show_master_data":   True,
+    "show_custom_query":  True,
+    "show_rate_sheet":    True,
+    "announcement":       "",
+}
+
+@st.cache_resource
+def _app_settings_store():
+    store = dict(_DEFAULT_APP_SETTINGS)
+    try:
+        if os.path.exists(APP_SETTINGS_PATH):
+            with open(APP_SETTINGS_PATH) as f:
+                store.update(json.load(f))
+    except Exception:
+        pass
+    return store
+
+def _save_app_settings():
+    store = _app_settings_store()
+    try:
+        os.makedirs(os.path.dirname(APP_SETTINGS_PATH), exist_ok=True)
+        with open(APP_SETTINGS_PATH, "w") as f:
+            json.dump(dict(store), f, indent=2)
+    except Exception:
+        pass
 
 DEFAULT_TABLE_STYLE = {
     "header_bg":      "#000000",
@@ -1639,6 +1667,9 @@ if not st.session_state.authenticated:
             </div>
         </div>
         """, unsafe_allow_html=True)
+        _ann = _app_settings_store().get("announcement", "").strip()
+        if _ann:
+            st.info(_ann)
         password = st.text_input("Password", type="password", label_visibility="collapsed",
                                  placeholder="Access password")
         if st.button("Enter", use_container_width=True):
@@ -1788,6 +1819,9 @@ tab_data, tab1, tab2, tab3, tab4 = st.tabs([
 ])
 
 with tab_data:
+    if not _app_settings_store().get("show_master_data", True):
+        st.warning("🔒 **Master Data** has been disabled by an administrator.")
+        st.stop()
     # ── Save / load shared across all sessions ──────────────────────────────
     shared = _shared_rate_data()
     save_col, load_col, _ = st.columns([1, 2, 5])
@@ -2053,6 +2087,9 @@ with tab_data:
 
 
 with tab1:
+    if not _app_settings_store().get("show_custom_query", True):
+        st.warning("🔒 **Custom Query** has been disabled by an administrator.")
+        st.stop()
     st.write("Filter rates by term, credit rating status, and number of results.")
 
     query_source = st.radio(
@@ -2200,6 +2237,9 @@ with tab1:
         )
 
 with tab2:
+    if not _app_settings_store().get("show_rate_sheet", True):
+        st.warning("🔒 **Rate Sheet Generator** has been disabled by an administrator.")
+        st.stop()
     n         = master_row_count()
     n_special = len(get_special_rate_rows())
     has_data  = n > 0 or n_special > 0
@@ -2459,6 +2499,54 @@ with tab4:
                         dis_store["providers"] = dis_providers
                         _save_disambiguate()
                         st.rerun()
+
+        # ── Feature Visibility ────────────────────────────────────────────
+        st.markdown("---")
+        st.markdown("#### Feature Visibility")
+        st.caption("Hide tabs from regular users. Admin tab is always visible.")
+
+        _s = _app_settings_store()
+        fv1, fv2, fv3 = st.columns(3)
+        with fv1:
+            _md_on = _s.get("show_master_data", True)
+            if st.button(
+                f"{'🟢 Master Data ON' if _md_on else '🔴 Master Data OFF'}",
+                key="toggle_master_data"
+            ):
+                _s["show_master_data"] = not _md_on
+                _save_app_settings()
+                st.rerun()
+        with fv2:
+            _cq_on = _s.get("show_custom_query", True)
+            if st.button(
+                f"{'🟢 Custom Query ON' if _cq_on else '🔴 Custom Query OFF'}",
+                key="toggle_custom_query"
+            ):
+                _s["show_custom_query"] = not _cq_on
+                _save_app_settings()
+                st.rerun()
+        with fv3:
+            _rs_on = _s.get("show_rate_sheet", True)
+            if st.button(
+                f"{'🟢 Rate Sheet ON' if _rs_on else '🔴 Rate Sheet OFF'}",
+                key="toggle_rate_sheet"
+            ):
+                _s["show_rate_sheet"] = not _rs_on
+                _save_app_settings()
+                st.rerun()
+
+        # ── Announcement ──────────────────────────────────────────────────
+        st.markdown("---")
+        st.markdown("#### Login Page Announcement")
+        st.caption("Appears as a notice on the login page. Leave blank to show nothing.")
+        _cur_ann = _s.get("announcement", "")
+        _new_ann = st.text_area("Announcement", value=_cur_ann, height=80,
+                                key="admin_announcement",
+                                placeholder="e.g. System will be unavailable Dec 25.")
+        if st.button("Save Announcement", key="save_ann"):
+            _s["announcement"] = _new_ann.strip()
+            _save_app_settings()
+            st.success("Announcement saved." if _new_ann.strip() else "Announcement cleared.")
 
         st.markdown("---")
         st.markdown("#### Usage Statistics")
