@@ -638,13 +638,21 @@ def display_name_with_min_max(raw_name, lookup):
 
 
 def rating_from_master_row(row, term_type):
-    """Read credit rating directly from the master data row.
-    Long-term rates use the long-term column; short-term use the short-term column."""
-    if term_type == "long":
-        col = "credit rating/insurance coverage - long term"
-    else:
-        col = "credit rating/insurance coverage - short term"
+    """Read credit rating directly from the master data row (fallback only)."""
+    col = (
+        "credit rating/insurance coverage - long term"
+        if term_type == "long"
+        else "credit rating/insurance coverage - short term"
+    )
     return clean_text(row.get(col, ""))
+
+
+def rating_with_fallback(issuer_raw, row, term_type, lookup):
+    """Institution lookup first; if not found, fall back to master data columns."""
+    rating = rating_and_insurance(issuer_raw, term_type, lookup)
+    if not rating:
+        rating = rating_from_master_row(row, term_type)
+    return rating
 
 
 def rating_and_insurance(raw_name, term_type, lookup):
@@ -780,7 +788,7 @@ def generate_custom_query(master_file, lookup, selected_terms, top_n, credit_rat
 
             term_rows.append([
                 display_name_with_min_max(issuer_raw, lookup),
-                rating_from_master_row(row, term_type),
+                rating_with_fallback(issuer_raw, row, term_type, lookup),
                 display_term,
                 rate,
             ])
@@ -1012,7 +1020,7 @@ def generate_report(master_file, lookup, fi_only=False):
                     lookup
                 ),
 
-                rating_from_master_row(row, term_type),
+                rating_with_fallback(issuer_raw, row, term_type, lookup),
 
                 display_term,
 
