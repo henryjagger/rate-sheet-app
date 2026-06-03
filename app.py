@@ -800,11 +800,27 @@ def generate_custom_query(master_file, lookup, selected_terms, top_n, credit_rat
     return results
 
 
+def _base_issuer_key(display_name):
+    """Strip min/max suffix so 'Bank (*Min $500K)' and 'Bank (*Min $100K)' deduplicate."""
+    import re
+    base = re.sub(r'\s*\([^)]*\)\s*$', '', str(display_name))
+    return normalize_name(base)
+
+def _parse_minimum(display_name):
+    """Extract the minimum dollar amount from a display name. Lower = better for client."""
+    import re
+    m = re.search(r'\*Min\s+\$?([\d.]+)\s*([KMBkmb]?)', str(display_name))
+    if not m:
+        return 0
+    num = float(m.group(1))
+    unit = m.group(2).upper()
+    return num * {'K': 1e3, 'M': 1e6, 'B': 1e9}.get(unit, 1)
+
 def keep_best_per_institution(rows):
     best = {}
 
     for row in rows:
-        key = normalize_name(row[0]) + "|" + row[1]
+        key = _base_issuer_key(row[0])   # deduplicate by base name only
 
         if key not in best:
             best[key] = row
@@ -813,13 +829,12 @@ def keep_best_per_institution(rows):
         existing = best[key]
 
         if row[3] > existing[3]:
+            # Higher rate wins
             best[key] = row
-
-        elif (
-            row[3] == existing[3]
-            and credit_rank(row[1]) > credit_rank(existing[1])
-        ):
-            best[key] = row
+        elif row[3] == existing[3]:
+            # Same rate: keep the one with the lower minimum
+            if _parse_minimum(row[0]) < _parse_minimum(existing[0]):
+                best[key] = row
 
     return list(best.values())
 
