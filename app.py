@@ -64,12 +64,14 @@ def save_table_style(updates):
 def _style_preview_html(s):
     bw   = s["border_width"]
     pad  = s["cell_padding"]
-    border = f"{bw}px solid {s['border_color']}"
+    border      = f"{bw}px solid {s['border_color']}"
+    # Header borders match the header background so lines are invisible
+    hdr_border  = f"{bw}px solid {s['header_bg']}"
     th_style = (
         f"background:{s['header_bg']};color:{s['header_text']};"
         f"font-family:{s['header_font']},sans-serif;font-size:{s['header_size']}pt;"
         f"font-weight:{'bold' if s['header_bold'] else 'normal'};"
-        f"border:{border};padding:{pad}px {pad*2}px;text-align:center;"
+        f"border:{hdr_border};padding:{pad}px {pad*2}px;text-align:center;"
     )
     def td_style(i, is_rate=False):
         bg = s["alt_row_bg"] if i % 2 == 1 else s["body_bg"]
