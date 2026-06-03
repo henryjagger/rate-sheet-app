@@ -1561,7 +1561,6 @@ if "query_results" not in st.session_state:
     st.session_state.query_excel      = None
     st.session_state.rs_all_in_html   = None
     st.session_state.rs_credit_html   = None
-    st.session_state.rs_fi_html       = None
 if "master_grid" not in st.session_state:
     st.session_state.master_grid = empty_master_df()
 if "special_rates" not in st.session_state:
@@ -2042,18 +2041,6 @@ with tab2:
     if st.session_state.get("rs_credit_html"):
         _copy_button_component(st.session_state.rs_credit_html, "Copy — Credit Rated & Guarantees")
 
-    st.markdown("---")
-
-    # ── 3. FI Rate Tables ─────────────────────────────────────────────────────
-    st.subheader("FI Rate Tables")
-    st.caption(
-        "Only institutions where **Take FI Money** = Yes in your master data. "
-        "Special rates are included alongside."
-    )
-    if st.button("Generate — FI Rate Tables"):
-        _build_and_store("rs_fi_html", fi_only=True)
-    if st.session_state.get("rs_fi_html"):
-        _copy_button_component(st.session_state.rs_fi_html, "Copy — FI Rate Table")
 
 with tab3:
     st.subheader("Master Rates File — Required Format")
