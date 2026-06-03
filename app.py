@@ -1543,56 +1543,39 @@ def get_master_file():
     buf.seek(0)
     return buf
 
-SPECIAL_RATES_COLS = ["Issuer", "Credit Rating", "Term", "Rate"]
 _BLANK = {"", "nan", "none", "None", "NaN"}
 
-def empty_special_rates_df():
-    # Term must be None (not "") so SelectboxColumn treats it as unset
-    return pd.DataFrame({
-        "Issuer":        pd.Series([""] * 10, dtype=str),
-        "Credit Rating": pd.Series([""] * 10, dtype=str),
-        "Term":          pd.Series([None] * 10, dtype=object),
-        "Rate":          pd.Series([""] * 10, dtype=str),
-    })
-
-def normalize_special_rates_df(df):
-    """Ensure correct dtypes after any data_editor / reload operation."""
-    result = df.copy()
-    for col in ["Issuer", "Credit Rating", "Rate"]:
-        if col in result.columns:
-            result[col] = result[col].astype(str).replace({v: "" for v in _BLANK}).fillna("")
-    if "Term" in result.columns:
-        # SelectboxColumn requires None for empty cells, not ""
-        result["Term"] = result["Term"].apply(
-            lambda v: None if (v is None or str(v).strip() in _BLANK) else str(v).strip()
-        )
-    return result
+# special_rates_v2 structure:
+# [{"issuer": str, "st_rating": str, "lt_rating": str,
+#   "entries": [{"term": str, "rate": str}, ...]}, ...]
 
 def get_special_rate_rows(selected_terms=None):
-    df = st.session_state.special_rates.copy()
+    _term_type_map = {t[0]: t[2] for t in TERM_COLUMNS}
     rows = []
-    for _, row in df.iterrows():
-        def _s(col):
-            v = row.get(col, "")
-            return "" if (v is None or str(v).strip() in _BLANK) else str(v).strip()
-        issuer = _s("Issuer")
+    for entry in st.session_state.get("special_rates_v2", []):
+        issuer    = entry.get("issuer", "").strip()
+        st_rating = entry.get("st_rating", "").strip()
+        lt_rating = entry.get("lt_rating", "").strip()
         if not issuer:
             continue
-        term = _s("Term")
-        if not term:
-            continue
-        rate = parse_rate(_s("Rate"))
-        if rate < 0.01:
-            continue
-        if selected_terms is not None and term not in selected_terms:
-            continue
-        rows.append([issuer, _s("Credit Rating"), term, rate])
+        for te in entry.get("entries", []):
+            term = te.get("term", "").strip()
+            if not term:
+                continue
+            rate = parse_rate(str(te.get("rate", "")))
+            if rate < 0.01:
+                continue
+            if selected_terms is not None and term not in selected_terms:
+                continue
+            term_type = _term_type_map.get(term, "short")
+            rating    = lt_rating if term_type == "long" else st_rating
+            rows.append([issuer, rating, term, rate])
     return rows
 
 @st.cache_resource
 def _shared_rate_data():
     return {"master_grid": None, "master_cols": None,
-            "special_rates": None, "saved_at": None}
+            "special_rates_v2": None, "saved_at": None}
 
 if "query_results" not in st.session_state:
     st.session_state.query_results    = None
@@ -1601,8 +1584,10 @@ if "query_results" not in st.session_state:
     st.session_state.rs_credit_html   = None
 if "master_grid" not in st.session_state:
     st.session_state.master_grid = empty_master_df()
-if "special_rates" not in st.session_state:
-    st.session_state.special_rates = empty_special_rates_df()
+if "special_rates_v2" not in st.session_state:
+    st.session_state.special_rates_v2 = []
+if "pending_terms" not in st.session_state:
+    st.session_state.pending_terms = []
 
 
 def _load_one_lookup(path):
@@ -1642,20 +1627,18 @@ with tab_data:
     save_col, load_col, _ = st.columns([1, 2, 5])
     with save_col:
         if st.button("💾 Save for Team", help="Saves current master rates and special rates so any team member can load them."):
-            shared["master_grid"]  = st.session_state.master_grid.to_dict(orient="records")
-            shared["master_cols"]  = list(st.session_state.master_grid.columns)
-            shared["special_rates"] = st.session_state.special_rates.to_dict(orient="records")
-            shared["saved_at"]     = datetime.now(_VAN).strftime("%b %d, %Y at %I:%M %p")
+            shared["master_grid"]     = st.session_state.master_grid.to_dict(orient="records")
+            shared["master_cols"]     = list(st.session_state.master_grid.columns)
+            shared["special_rates_v2"] = st.session_state.special_rates_v2
+            shared["saved_at"]        = datetime.now(_VAN).strftime("%b %d, %Y at %I:%M %p")
             st.success("Saved! Team members can now click 'Use Last' to load this data.")
     with load_col:
         if shared.get("saved_at"):
             if st.button(f"⟳ Use Last  —  {shared['saved_at']}", help="Load the last saved master rates and special rates."):
-                st.session_state.master_grid   = pd.DataFrame(
+                st.session_state.master_grid     = pd.DataFrame(
                     shared["master_grid"], columns=shared["master_cols"]
                 ).astype(str).fillna("")
-                st.session_state.special_rates = normalize_special_rates_df(
-                    pd.DataFrame(shared["special_rates"], columns=SPECIAL_RATES_COLS)
-                )
+                st.session_state.special_rates_v2 = shared.get("special_rates_v2") or []
                 st.rerun()
 
     st.markdown("---")
@@ -1715,169 +1698,192 @@ with tab_data:
 
     st.markdown("---")
     st.subheader("Special Rates")
-    st.caption("Manually enter special or off-market rates. These are included in all queries and rate sheet generation.")
+    st.caption("Enter the institution once, provide its ST and LT credit ratings, then add as many terms as you need.")
 
-    sp_hdr, sp_btn = st.columns([8, 1])
-    with sp_btn:
-        if st.button("Clear", key="clear_special"):
-            st.session_state.special_rates = empty_special_rates_df()
-            st.rerun()
+    # ── Helper: look up suggested ratings for an issuer ──────────────────────
+    def _suggested_ratings(issuer_name):
+        store = _rate_history_store()
+        norm  = normalize_name(issuer_name)
+        li    = (lookup or {}).get(norm)
+        def _fmt(r, ins):
+            if r and ins: return f"{r} – {ins}"
+            return r or ins or ""
+        lt = _fmt(li.get("long_rating",""),  li.get("insurance","")) if li else ""
+        st_ = _fmt(li.get("short_rating",""), li.get("insurance","")) if li else ""
+        return st_, lt
 
-    term_options_list = [t[0] for t in TERM_COLUMNS]
+    # ── Add new entry form ───────────────────────────────────────────────────
+    with st.form("add_special_rate_form", clear_on_submit=False):
+        st.markdown("**Step 1 — Institution**")
+        f_issuer = st.text_input("Institution name", key="f_issuer",
+                                 placeholder="e.g. EQ Bank")
 
-    # Pass session state directly — never a copy. A fresh object every rerun
-    # makes Streamlit treat it as new input and reset pending edits.
-    special_edited = st.data_editor(
-        st.session_state.special_rates,
-        num_rows="dynamic",
-        use_container_width=True,
-        height=320,
-        column_config={
-            "Issuer":        st.column_config.TextColumn("Issuer",         width="large"),
-            "Credit Rating": st.column_config.TextColumn("Credit Rating",  width="large"),
-            "Term":          st.column_config.SelectboxColumn(
-                                 "Term", options=term_options_list, width="medium"
-                             ),
-            "Rate":          st.column_config.TextColumn("Rate",           width="small"),
-        },
-    )
-    # Always write back unconditionally using the normaliser so Term cells
-    # stay as None (not "") which SelectboxColumn requires for empty rows.
-    st.session_state.special_rates = normalize_special_rates_df(special_edited)
+        st.markdown("**Step 2 — Credit ratings** *(leave blank if none)*")
+        fc1, fc2 = st.columns(2)
+        with fc1:
+            f_st = st.text_input("Short-term rating", key="f_st",
+                                 placeholder="e.g. R-1 (High) – CDIC")
+        with fc2:
+            f_lt = st.text_input("Long-term rating",  key="f_lt",
+                                 placeholder="e.g. AA – CDIC")
 
-    # Auto-save completed rows to the issuer history database
-    for _, row in st.session_state.special_rates.iterrows():
-        issuer = str(row.get("Issuer", "") or "").strip()
-        term   = str(row.get("Term",   "") or "").strip()
-        rate   = str(row.get("Rate",   "") or "").strip()
-        if issuer and term and rate and issuer not in _BLANK and term not in _BLANK:
-            save_rate_to_history(
-                issuer,
-                str(row.get("Credit Rating", "") or "").strip(),
-                term, rate,
-            )
+        st.markdown("**Step 3 — Add a term & rate**")
+        ft1, ft2, ft3 = st.columns([3, 2, 1])
+        with ft1:
+            f_term = st.selectbox("Term", [t[0] for t in TERM_COLUMNS], key="f_term")
+        with ft2:
+            f_rate = st.text_input("Rate", key="f_rate", placeholder="e.g. 3.75%")
+        with ft3:
+            st.write("")
+            add_term_btn = st.form_submit_button("+ Add Term")
 
-    # ── Issuer Database ──────────────────────────────────────────────────────
+    if add_term_btn:
+        issuer_val = st.session_state.get("f_issuer", "").strip()
+        rate_val   = st.session_state.get("f_rate",   "").strip()
+        term_val   = st.session_state.get("f_term",   "")
+        if not issuer_val:
+            st.warning("Enter an institution name first.")
+        elif not rate_val:
+            st.warning("Enter a rate first.")
+        else:
+            st.session_state.pending_terms.append({"term": term_val, "rate": rate_val})
+
+    # Show pending terms for the current entry
+    if st.session_state.pending_terms:
+        st.markdown("**Terms being added:**")
+        for i, te in enumerate(list(st.session_state.pending_terms)):
+            pc1, pc2 = st.columns([5, 1])
+            pc1.write(f"• **{te['term']}** — {te['rate']}")
+            if pc2.button("✕", key=f"rm_pterm_{i}"):
+                st.session_state.pending_terms.pop(i)
+                st.rerun()
+
+        issuer_val = st.session_state.get("f_issuer", "").strip()
+        st_val     = st.session_state.get("f_st",     "").strip()
+        lt_val     = st.session_state.get("f_lt",     "").strip()
+
+        # Auto-suggest ratings if fields are empty
+        if issuer_val and not st_val and not lt_val:
+            sug_st, sug_lt = _suggested_ratings(issuer_val)
+            if sug_st or sug_lt:
+                st.caption(f"Suggested — ST: {sug_st or '—'}  |  LT: {sug_lt or '—'}")
+
+        if st.button("✅ Save to Special Rates", key="save_special_entry"):
+            if not issuer_val:
+                st.warning("Enter an institution name.")
+            else:
+                entry = {
+                    "issuer":    issuer_val,
+                    "st_rating": st_val,
+                    "lt_rating": lt_val,
+                    "entries":   list(st.session_state.pending_terms),
+                }
+                st.session_state.special_rates_v2.append(entry)
+                # Save each term to history
+                _term_type_map = {t[0]: t[2] for t in TERM_COLUMNS}
+                for te in entry["entries"]:
+                    tt     = _term_type_map.get(te["term"], "short")
+                    rating = lt_val if tt == "long" else st_val
+                    save_rate_to_history(issuer_val, rating, te["term"], te["rate"])
+                st.session_state.pending_terms = []
+                st.rerun()
+
+    # ── Current special rates list ────────────────────────────────────────────
+    if st.session_state.special_rates_v2:
+        st.markdown("**Saved special rates:**")
+        for i, entry in enumerate(list(st.session_state.special_rates_v2)):
+            terms_summary = ", ".join(f"{te['term']} {te['rate']}"
+                                      for te in entry.get("entries", []))
+            with st.expander(f"**{entry['issuer']}** — {terms_summary}"):
+                st.write(f"**ST rating:** {entry.get('st_rating') or '—'}")
+                st.write(f"**LT rating:** {entry.get('lt_rating') or '—'}")
+                for te in entry.get("entries", []):
+                    st.write(f"• {te['term']}: {te['rate']}")
+                if st.button("🗑 Delete", key=f"del_sp_{i}"):
+                    st.session_state.special_rates_v2.pop(i)
+                    st.rerun()
+
+    # ── Issuer Database ───────────────────────────────────────────────────────
     st.markdown("---")
     st.subheader("Issuer Database")
-    st.caption(
-        "Search any issuer to see its credit rating from the institution lookup "
-        "and any historically saved special rates. Click **Add** to drop a row "
-        "straight into the Special Rates grid above."
-    )
+    st.caption("Search for a known issuer to see its ratings and history, then add rates directly.")
 
-    store = _rate_history_store()
-    history_names  = {v["display_name"] for v in store.values() if "display_name" in v}
-    lookup_names   = {info["display_name"] for info in (lookup or {}).values()}
-    all_known      = sorted(history_names | lookup_names)
+    store       = _rate_history_store()
+    hist_names  = {v["display_name"] for v in store.values() if "display_name" in v}
+    look_names  = {info["display_name"] for info in (lookup or {}).values()}
+    all_known   = sorted(hist_names | look_names)
 
-    db_search = st.text_input(
-        "Search issuer",
-        placeholder="Start typing an issuer name…",
-        key="db_search",
-        label_visibility="collapsed",
-    )
+    db_search = st.text_input("Search issuer", placeholder="Start typing…",
+                              key="db_search", label_visibility="collapsed")
 
     if db_search:
-        q = db_search.strip().lower()
+        q       = db_search.strip().lower()
         matches = [n for n in all_known if q in n.lower()][:8]
-
         if not matches:
-            st.caption("No known issuers match that name. Enter rates manually in the grid above.")
+            st.caption("No known issuers match. Use the form above to add a new one.")
         else:
             for name in matches:
-                norm        = normalize_name(name)
-                lookup_info = (lookup or {}).get(norm)
-                hist_key    = name.lower()
-                hist_entries = store.get(hist_key, {}).get("entries", [])
+                norm         = normalize_name(name)
+                lookup_info  = (lookup or {}).get(norm)
+                hist_entries = store.get(name.lower(), {}).get("entries", [])
 
-                # Build the credit rating string from lookup
-                def _build_rating(term_type):
-                    if not lookup_info:
-                        return ""
-                    r   = lookup_info.get(f"{term_type}_rating", "")
+                def _br(tt):
+                    if not lookup_info: return ""
+                    r   = lookup_info.get(f"{tt}_rating", "")
                     ins = lookup_info.get("insurance", "")
-                    if r and ins:  return f"{r} – {ins}"
-                    return r or ins or ""
+                    return f"{r} – {ins}" if (r and ins) else (r or ins or "")
 
-                long_rating  = _build_rating("long")
-                short_rating = _build_rating("short")
+                long_r  = _br("long")
+                short_r = _br("short")
 
                 with st.expander(f"**{name}**", expanded=(len(matches) == 1)):
                     if lookup_info:
-                        if long_rating:
-                            st.markdown(f"**Long-term rating:** {long_rating}")
-                        if short_rating:
-                            st.markdown(f"**Short-term rating:** {short_rating}")
+                        if long_r:  st.markdown(f"**LT rating:** {long_r}")
+                        if short_r: st.markdown(f"**ST rating:** {short_r}")
 
-                    if hist_entries:
-                        st.markdown("**Previous special rates:**")
-                        hdr = st.columns([3, 2, 1, 1])
-                        hdr[0].caption("Credit Rating")
-                        hdr[1].caption("Term")
-                        hdr[2].caption("Rate")
-                        for i, entry in enumerate(hist_entries[:8]):
-                            c1, c2, c3, c4 = st.columns([3, 2, 1, 1])
-                            c1.write(entry.get("credit_rating") or "—")
-                            c2.write(entry.get("term", ""))
-                            c3.write(entry.get("rate", ""))
-                            if c4.button("Add", key=f"db_add_{name}_{i}"):
-                                new_row = pd.DataFrame([{
-                                    "Issuer":        name,
-                                    "Credit Rating": entry.get("credit_rating", ""),
-                                    "Term":          entry.get("term", ""),
-                                    "Rate":          entry.get("rate", ""),
-                                }])
-                                existing = st.session_state.special_rates[
-                                    st.session_state.special_rates["Issuer"].astype(str).str.strip().ne("")
-                                ]
-                                st.session_state.special_rates = (
-                                    normalize_special_rates_df(
-                                        pd.concat([existing, new_row], ignore_index=True)
-                                    )
-                                )
-                                st.rerun()
-                    elif not lookup_info:
-                        st.caption("No history yet — add a rate manually in the grid above and it will appear here next time.")
-
-                    # Quick-add from lookup rating
-                    if lookup_info and (long_rating or short_rating):
-                        st.markdown("**Add from lookup:**")
-                        qa_col1, qa_col2, qa_col3 = st.columns([2, 1, 1])
-                        with qa_col1:
-                            qa_rating = st.selectbox(
-                                "Rating",
-                                options=[r for r in [long_rating, short_rating] if r],
-                                key=f"qa_rating_{name}",
-                            )
-                        with qa_col2:
-                            qa_term = st.selectbox(
-                                "Term",
-                                options=[t[0] for t in TERM_COLUMNS],
-                                key=f"qa_term_{name}",
-                            )
-                        with qa_col3:
-                            qa_rate = st.text_input("Rate", key=f"qa_rate_{name}", placeholder="e.g. 3.75%")
-                        if st.button("Add to Special Rates", key=f"qa_add_{name}"):
-                            if qa_rate.strip():
-                                new_row = pd.DataFrame([{
-                                    "Issuer":        name,
-                                    "Credit Rating": qa_rating,
-                                    "Term":          qa_term,
-                                    "Rate":          qa_rate.strip(),
-                                }])
-                                existing = st.session_state.special_rates[
-                                    st.session_state.special_rates["Issuer"].astype(str).str.strip().ne("")
-                                ]
-                                st.session_state.special_rates = (
-                                    normalize_special_rates_df(
-                                        pd.concat([existing, new_row], ignore_index=True)
-                                    )
-                                )
-                                save_rate_to_history(name, qa_rating, qa_term, qa_rate.strip())
+                    # Quick-add: term + rate, then saves entry
+                    st.markdown("**Add to Special Rates:**")
+                    da1, da2, da3 = st.columns([3, 2, 1])
+                    with da1:
+                        db_term = st.selectbox("Term", [t[0] for t in TERM_COLUMNS],
+                                               key=f"db_term_{name}")
+                    with da2:
+                        db_rate = st.text_input("Rate", key=f"db_rate_{name}",
+                                                placeholder="e.g. 3.75%")
+                    with da3:
+                        st.write("")
+                        if st.button("Add", key=f"db_add_{name}"):
+                            if db_rate.strip():
+                                new_entry = {
+                                    "issuer":    name,
+                                    "st_rating": short_r,
+                                    "lt_rating": long_r,
+                                    "entries":   [{"term": db_term, "rate": db_rate.strip()}],
+                                }
+                                st.session_state.special_rates_v2.append(new_entry)
+                                _ttmap = {t[0]: t[2] for t in TERM_COLUMNS}
+                                tt     = _ttmap.get(db_term, "short")
+                                save_rate_to_history(name, long_r if tt == "long" else short_r,
+                                                     db_term, db_rate.strip())
                                 st.rerun()
                             else:
-                                st.warning("Enter a rate first.")
+                                st.warning("Enter a rate.")
+
+                    if hist_entries:
+                        st.markdown("**History:**")
+                        for j, he in enumerate(hist_entries[:6]):
+                            hc1, hc2, hc3 = st.columns([3, 2, 1])
+                            hc1.write(he.get("term", ""))
+                            hc2.write(he.get("rate", ""))
+                            if hc3.button("Use", key=f"db_use_{name}_{j}"):
+                                new_entry = {
+                                    "issuer":    name,
+                                    "st_rating": short_r,
+                                    "lt_rating": long_r,
+                                    "entries":   [{"term": he["term"], "rate": he["rate"]}],
+                                }
+                                st.session_state.special_rates_v2.append(new_entry)
+                                st.rerun()
 
 
 with tab1:
