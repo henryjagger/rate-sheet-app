@@ -110,6 +110,94 @@ def _style_preview_html(s):
     )
 
 
+def build_copy_html(rows, style=None):
+    """Return a styled HTML table string ready to paste into Outlook/email."""
+    s   = style or load_table_style()
+    bw  = s["border_width"]
+    pad = s["cell_padding"]
+    hdr_border = f"{bw}px solid {s['header_bg']}"
+    bdr        = f"{bw}px solid {s['border_color']}"
+
+    th = (
+        f"background:{s['header_bg']};color:{s['header_text']};"
+        f"font-family:{s['header_font']},sans-serif;font-size:{s['header_size']}pt;"
+        f"font-weight:{'bold' if s['header_bold'] else 'normal'};"
+        f"border:{hdr_border};padding:{pad}px {pad*2}px;text-align:center;"
+    )
+    def td(ri, is_rate=False):
+        bg    = s["alt_row_bg"] if ri % 2 == 1 else s["body_bg"]
+        color = s["rate_color"] if is_rate else s["body_text"]
+        return (
+            f"background:{bg};color:{color};"
+            f"font-family:{s['body_font']},sans-serif;font-size:{s['body_size']}pt;"
+            f"border:{bdr};padding:{pad}px {pad*2}px;"
+            f"text-align:center;vertical-align:middle;"
+        )
+
+    # Compute Term rowspans
+    rowspans, i = [], 0
+    while i < len(rows):
+        span = 1
+        while i + span < len(rows) and rows[i + span][2] == rows[i][2]:
+            span += 1
+        rowspans.extend([span] + [0] * (span - 1))
+        i += span
+
+    html = (
+        "<table style='border-collapse:collapse;'><thead><tr>"
+        f"<th style='{th}'>Issuer</th>"
+        f"<th style='{th}'>Credit Rating &amp; Guarantee</th>"
+        f"<th style='{th}'>Term</th>"
+        f"<th style='{th}'>Rate</th>"
+        "</tr></thead><tbody>"
+    )
+    for ri, (issuer, rating, term, rate) in enumerate(rows):
+        span     = rowspans[ri]
+        rate_str = f"{rate * 100:.2f}%"
+        html += "<tr>"
+        html += f"<td style='{td(ri)}'>{issuer}</td>"
+        html += f"<td style='{td(ri)}'>{linkify_insurance_html(str(rating))}</td>"
+        if span > 0:
+            html += (
+                f"<td rowspan='{span}' style='{td(ri)}'>{term}</td>"
+            )
+        html += f"<td style='{td(ri, True)}'>{rate_str}</td>"
+        html += "</tr>"
+    html += "</tbody></table>"
+    return html
+
+
+def _copy_button_component(html_str, btn_label="Copy to Clipboard"):
+    """Render a JS-powered copy button for the given HTML string."""
+    def _esc(s):
+        return s.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
+    s = load_table_style()
+    components.html(f"""
+    <button onclick="(async () => {{
+        try {{
+            await navigator.clipboard.write([new ClipboardItem({{
+                'text/html':  new Blob([`{_esc(html_str)}`], {{type:'text/html'}}),
+                'text/plain': new Blob([`{_esc(html_str)}`], {{type:'text/plain'}}),
+            }})]);
+        }} catch(e) {{
+            const t = document.createElement('textarea');
+            t.value = `{_esc(html_str)}`;
+            document.body.appendChild(t); t.select();
+            document.execCommand('copy'); document.body.removeChild(t);
+        }}
+        this.textContent = '✓ Copied!';
+        setTimeout(() => this.textContent = '{btn_label}', 2000);
+    }})()" style="
+        background:transparent;color:#111111;border:1px solid rgba(0,0,0,0.25);
+        border-radius:1px;padding:0 16px;font-size:11px;font-family:Inter,sans-serif;
+        font-weight:600;text-transform:uppercase;letter-spacing:0.14em;
+        cursor:pointer;height:38px;width:100%;transition:all 0.22s ease;"
+    onmouseover="this.style.background='#111111';this.style.color='#ffffff';"
+    onmouseout="this.style.background='transparent';this.style.color='#111111';"
+    >{btn_label}</button>
+    """, height=50)
+
+
 @st.cache_resource
 def _rate_history_store():
     """Shared, persistent store of special-rate history keyed by normalised issuer name."""
@@ -1254,7 +1342,8 @@ def _shared_rate_data():
 
 if "query_results" not in st.session_state:
     st.session_state.query_results = None
-    st.session_state.query_excel = None
+    st.session_state.query_excel   = None
+    st.session_state.rate_sheet_html = None
 if "master_grid" not in st.session_state:
     st.session_state.master_grid = empty_master_df()
 if "special_rates" not in st.session_state:
@@ -1805,17 +1894,12 @@ with tab2:
                     output.extend(sorted(_groups.pop(tc[0]), key=lambda r: r[3], reverse=True))
             for rows in _groups.values():  # any terms not in TERM_COLUMNS
                 output.extend(sorted(rows, key=lambda r: r[3], reverse=True))
-            excel_file = create_excel(output)
+            st.session_state.rate_sheet_html = build_copy_html(output)
             log_event("rate_sheet")
 
-            st.success("Formatted rate sheet generated.")
-
-            st.download_button(
-                label="Download Formatted Rate Sheet",
-                data=excel_file,
-                file_name="formatted_rate_sheet.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+    if st.session_state.get("rate_sheet_html"):
+        st.success(f"Rate sheet ready — {len([r for r in st.session_state.rate_sheet_html.split('<tr>') if '<td' in r])} rows.")
+        _copy_button_component(st.session_state.rate_sheet_html, "Copy Rate Sheet to Clipboard")
 
 with tab3:
     st.subheader("Master Rates File — Required Format")
