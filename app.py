@@ -157,18 +157,19 @@ def build_copy_html(rows, style=None):
         )
 
     def linkify_outlook(text):
-        """Blue+underline for insurance name using <font>/<u> (Outlook safe)."""
+        """Hyperlink the insurance provider name — Outlook preserves <a href> on paste."""
         if not text or text == "* CANNOT SOURCE, ENTER MANUALLY *":
             return text or ""
         if " – " in text:
             rating_part, ins_part = text.split(" – ", 1)
-            if find_insurance_url(ins_part):
-                return (
-                    f"{rating_part} – "
-                    f"<font color='#0563C1'><u>{ins_part}</u></font>"
-                )
-        if find_insurance_url(text):
-            return f"<font color='#0563C1'><u>{text}</u></font>"
+            provider, url = find_insurance_match(ins_part)
+            if url:
+                linked = _make_link(provider, url, ins_part)
+                return f"{rating_part} – {linked}"
+            return text
+        provider, url = find_insurance_match(text)
+        if url:
+            return _make_link(provider, url, text)
         return text
 
     # Term rowspans
@@ -309,37 +310,55 @@ def save_rate_to_history(issuer, credit_rating, term, rate):
     _save_history_to_disk()
 
 INSURANCE_URLS = {
-    "CDIC":  "https://www.cdic.ca",
-    "DICO":  "https://www.fsrao.ca",
-    "FSRA":  "https://www.fsrao.ca",
-    "DGCM":  "https://www.dgcm.ca",
-    "CUDIC": "https://www.cudic.gov.bc.ca",
-    "CUDGM": "https://www.dgcm.ca",
-    "CUIM":  "https://www.cuim.ca",
-    "DEPOSIT GUARANTEE": "https://www.dgcm.ca",
+    "CDIC":             "https://www.cdic.ca",
+    "DICO":             "https://www.fsrao.ca",
+    "FSRA":             "https://www.fsrao.ca",
+    "DGCM":             "https://www.dgcm.ca",
+    "CUDIC":            "https://www.cudic.gov.bc.ca",
+    "CUDGM":            "https://www.dgcm.ca",
+    "CUIM":             "https://www.cuim.ca",
+    "DEPOSIT GUARANTEE":"https://www.dgcm.ca",
 }
 
 
-def find_insurance_url(text):
+def find_insurance_match(text):
+    """Return (provider_key, url) for the first insurance provider found in text."""
     upper = str(text).upper()
     for provider, url in INSURANCE_URLS.items():
         if provider in upper:
-            return url
-    return None
+            return provider, url
+    return None, None
+
+
+def find_insurance_url(text):
+    _, url = find_insurance_match(text)
+    return url
+
+
+def _make_link(provider, url, text_segment):
+    """Replace provider name in text_segment with a hyperlink, preserving surrounding text."""
+    idx = text_segment.upper().find(provider)
+    if idx == -1:
+        return text_segment
+    before  = text_segment[:idx]
+    matched = text_segment[idx:idx + len(provider)]
+    after   = text_segment[idx + len(provider):]
+    return f'{before}<a href="{url}" style="color:#0563C1;">{matched}</a>{after}'
 
 
 def linkify_insurance_html(text):
-    """Style only the insurance provider name blue+underlined for clipboard HTML.
-    Uses <span> instead of <a> so Outlook/Excel don't hyperlink the entire cell."""
+    """Hyperlink the insurance provider name in a rating string (web display)."""
     if not text or text == "* CANNOT SOURCE, ENTER MANUALLY *":
         return text
     if " – " in text:
         rating, insurance = text.split(" – ", 1)
-        if find_insurance_url(insurance):
-            return f"{rating} – <span style='color:#0563C1;text-decoration:underline;'>{insurance}</span>"
+        provider, url = find_insurance_match(insurance)
+        if url:
+            return f"{rating} – {_make_link(provider, url, insurance)}"
         return text
-    if find_insurance_url(text):
-        return f"<span style='color:#0563C1;text-decoration:underline;'>{text}</span>"
+    provider, url = find_insurance_match(text)
+    if url:
+        return _make_link(provider, url, text)
     return text
 PASSWORDS_PATH = "passwords.json"
 STATS_PATH = "data/stats.json"
@@ -2002,6 +2021,41 @@ with tab4:
                     f.write(new_lookup.read())
                 st.cache_data.clear()
                 st.success("Lookup file updated. To make permanent, push the new file to GitHub.")
+
+        st.markdown("---")
+        st.markdown("#### Insurance Provider Links")
+        st.caption(
+            "These are the URLs the app hyperlinks when a provider abbreviation appears "
+            "in a credit rating. Edit any URL and click **Save Links**."
+        )
+
+        current_urls = dict(INSURANCE_URLS)
+        edited_urls  = {}
+        for provider, url in current_urls.items():
+            col_a, col_b = st.columns([1, 3])
+            with col_a:
+                st.text(provider)
+            with col_b:
+                edited_urls[provider] = st.text_input(
+                    provider, value=url, label_visibility="collapsed",
+                    key=f"ins_url_{provider}"
+                )
+
+        st.markdown("**Add new provider**")
+        nc1, nc2 = st.columns([1, 3])
+        with nc1:
+            new_abbr = st.text_input("Abbreviation", key="new_ins_abbr",
+                                     placeholder="e.g. DGCF")
+        with nc2:
+            new_url  = st.text_input("URL", key="new_ins_url",
+                                     placeholder="https://...")
+
+        if st.button("Save Links", key="save_ins_links"):
+            INSURANCE_URLS.clear()
+            INSURANCE_URLS.update({k: v.strip() for k, v in edited_urls.items() if v.strip()})
+            if new_abbr.strip() and new_url.strip():
+                INSURANCE_URLS[new_abbr.strip().upper()] = new_url.strip()
+            st.success("Links updated for this session. They reset on next deploy — paste them into the source code to make them permanent.")
 
         st.markdown("---")
         st.markdown("#### Usage Statistics")
