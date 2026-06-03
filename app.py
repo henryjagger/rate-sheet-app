@@ -112,14 +112,7 @@ def _style_preview_html(s):
 
 
 def build_copy_html(rows, style=None):
-    """
-    Return an Outlook-compatible HTML table string.
-
-    Outlook uses Word's rendering engine, which ignores most CSS.
-    The fix: duplicate every style as an HTML attribute (bgcolor, align,
-    valign, face, color) alongside the CSS inline style so at least one
-    of them sticks in every email client.
-    """
+    """Outlook-compatible HTML table with exact sizing and reliable colours."""
     s      = style or load_table_style()
     bw     = s["border_width"]
     pad    = s["cell_padding"]
@@ -136,44 +129,93 @@ def build_copy_html(rows, style=None):
     r_col  = s["rate_color"]
     bdr_c  = s["border_color"]
 
-    # Header: border same colour as bg so lines are invisible
-    th_css = (
-        f"background-color:{h_bg};color:{h_txt};"
-        f"font-family:{h_fnt},sans-serif;font-size:{h_sz}pt;"
-        f"font-weight:{'bold' if h_bold else 'normal'};"
-        f"border:{bw}px solid {h_bg};"
-        f"padding:{pad}px {pad*2}px;text-align:center;"
-    )
+    # ── Dimensions (Outlook uses pt for height, px for width) ──────────────
+    # 0.56 cm = 15.87 pt = 21 px
+    ROW_H_PT  = "15.87pt"
+    ROW_H_PX  = "21"
+    # Column widths: 1 cm ≈ 37.795 px
+    W_CR   = "265"   # Credit Rating & Guarantee: 7 cm
+    W_TERM = "208"   # Term: 5.5 cm
+    W_RATE = "132"   # Rate: 3.5 cm
+    # Issuer: no fixed width — nowrap so it fits content on one line
+
+    bdr_body = f"{bw}px solid {bdr_c}"
+    bdr_hdr  = f"{bw}px solid {h_bg}"   # invisible header borders
 
     def row_bg(ri):
         return alt_bg if ri % 2 == 1 else b_bg
 
-    def td_css(ri, color):
-        bg = row_bg(ri)
+    # ── Colour helper ───────────────────────────────────────────────────────
+    # mso-color-alt:windowtext tells Word's renderer to use the explicit hex
+    # colour rather than substituting a theme colour (the root cause of rates
+    # showing as black instead of red).
+    def _span(text, color):
         return (
-            f"background-color:{bg};color:{color};"
-            f"font-family:{b_fnt},sans-serif;font-size:{b_sz}pt;"
-            f"border:{bw}px solid {bdr_c};"
-            f"padding:{pad}px {pad*2}px;text-align:center;vertical-align:middle;"
+            f"<span style='color:{color};mso-color-alt:windowtext;'>"
+            f"<font face='{b_fnt}' color='{color}'>{text}</font>"
+            f"</span>"
         )
 
+    # ── Cell content wrapper ────────────────────────────────────────────────
+    def _p(content, color):
+        return (
+            f"<p align='center' style='"
+            f"margin:0;padding:0;text-align:center;"
+            f"color:{color};mso-line-height-rule:exactly;'>"
+            + _span(content, color) +
+            f"</p>"
+        )
+
+    def _p_hdr(content):
+        b_o = "<b>" if h_bold else ""
+        b_c = "</b>" if h_bold else ""
+        return (
+            f"<p align='center' style='"
+            f"margin:0;padding:0;text-align:center;"
+            f"color:{h_txt};mso-line-height-rule:exactly;'>"
+            f"<span style='color:{h_txt};mso-color-alt:windowtext;'>"
+            f"<font face='{h_fnt}' color='{h_txt}'>{b_o}{content}{b_c}</font>"
+            f"</span></p>"
+        )
+
+    # ── Linkify insurance provider name ─────────────────────────────────────
     def linkify_outlook(text):
-        """Hyperlink the insurance provider name — Outlook preserves <a href> on paste."""
         if not text or text == "* CANNOT SOURCE, ENTER MANUALLY *":
             return text or ""
         if " – " in text:
             rating_part, ins_part = text.split(" – ", 1)
             provider, url = find_insurance_match(ins_part)
             if url:
-                linked = _make_link(provider, url, ins_part)
-                return f"{rating_part} – {linked}"
+                return f"{rating_part} – {_make_link(provider, url, ins_part)}"
             return text
         provider, url = find_insurance_match(text)
-        if url:
-            return _make_link(provider, url, text)
-        return text
+        return _make_link(provider, url, text) if url else text
 
-    # Term rowspans
+    # ── Shared cell CSS ─────────────────────────────────────────────────────
+    def th_css(width=""):
+        w = f"width:{width}px;" if width else ""
+        return (
+            f"background-color:{h_bg};color:{h_txt};"
+            f"font-family:{h_fnt},sans-serif;font-size:{h_sz}pt;"
+            f"font-weight:{'bold' if h_bold else 'normal'};"
+            f"border:{bdr_hdr};padding:{pad}px {pad*2}px;"
+            f"text-align:center;height:{ROW_H_PT};"
+            f"mso-line-height-rule:exactly;{w}"
+        )
+
+    def td_css(ri, color, width="", nowrap=False):
+        bg = row_bg(ri)
+        w  = f"width:{width}px;" if width else ""
+        nw = "white-space:nowrap;" if nowrap else ""
+        return (
+            f"background-color:{bg};color:{color};"
+            f"font-family:{b_fnt},sans-serif;font-size:{b_sz}pt;"
+            f"border:{bdr_body};padding:{pad}px {pad*2}px;"
+            f"text-align:center;vertical-align:middle;"
+            f"height:{ROW_H_PT};mso-line-height-rule:exactly;{w}{nw}"
+        )
+
+    # ── Term rowspans ───────────────────────────────────────────────────────
     rowspans, i = [], 0
     while i < len(rows):
         span = 1
@@ -182,35 +224,24 @@ def build_copy_html(rows, style=None):
         rowspans.extend([span] + [0] * (span - 1))
         i += span
 
-    b_o = "<b>" if h_bold else ""
-    b_c = "</b>" if h_bold else ""
-
-    # Outlook treats cell content as paragraphs; paragraph align overrides td align.
-    # color must be on the <p> too — Outlook's Normal paragraph style overrides
-    # <font color> when no explicit paragraph-level color is set.
-    def _p(content, color):
+    # ── Build HTML ──────────────────────────────────────────────────────────
+    def th_cell(label, width=""):
+        w_attr = f" width='{width}'" if width else ""
         return (
-            f"<p align='center' style='margin:0;padding:0;text-align:center;color:{color};'>"
-            f"<font face='{b_fnt}' color='{color}'>{content}</font>"
-            f"</p>"
-        )
-
-    def th_cell(label):
-        return (
-            f"<th bgcolor='{h_bg}' align='center' style='{th_css}'>"
-            f"<p align='center' style='margin:0;padding:0;text-align:center;'>"
-            f"<font face='{h_fnt}' color='{h_txt}'>{b_o}{label}{b_c}</font>"
-            f"</p></th>"
+            f"<th{w_attr} bgcolor='{h_bg}' align='center' height='{ROW_H_PX}' "
+            f"style='{th_css(width)}'>"
+            + _p_hdr(label) + "</th>"
         )
 
     html = (
         "<table border='0' cellpadding='0' cellspacing='0' "
         "style='border-collapse:collapse;'>"
-        "<thead><tr>"
+        "<thead>"
+        f"<tr height='{ROW_H_PX}'>"
         + th_cell("Issuer")
-        + th_cell("Credit Rating &amp; Guarantee")
-        + th_cell("Term")
-        + th_cell("Rate")
+        + th_cell("Credit Rating &amp; Guarantee", W_CR)
+        + th_cell("Term", W_TERM)
+        + th_cell("Rate", W_RATE)
         + "</tr></thead><tbody>"
     )
 
@@ -219,23 +250,32 @@ def build_copy_html(rows, style=None):
         rate_str = f"{rate * 100:.2f}%"
         bg       = row_bg(ri)
 
-        html += "<tr>"
+        html += f"<tr height='{ROW_H_PX}'>"
+
+        # Issuer — no fixed width, nowrap
         html += (
-            f"<td bgcolor='{bg}' align='center' valign='middle' style='{td_css(ri, b_txt)}'>"
+            f"<td bgcolor='{bg}' align='center' valign='middle' "
+            f"style='{td_css(ri, b_txt, nowrap=True)}'>"
             + _p(issuer, b_txt) + "</td>"
         )
+        # Credit Rating
         html += (
-            f"<td bgcolor='{bg}' align='center' valign='middle' style='{td_css(ri, b_txt)}'>"
+            f"<td width='{W_CR}' bgcolor='{bg}' align='center' valign='middle' "
+            f"style='{td_css(ri, b_txt, W_CR)}'>"
             + _p(linkify_outlook(str(rating)), b_txt) + "</td>"
         )
+        # Term (rowspan)
         if span > 0:
             rs = f" rowspan='{span}'" if span > 1 else ""
             html += (
-                f"<td{rs} bgcolor='{bg}' align='center' valign='middle' style='{td_css(ri, b_txt)}'>"
+                f"<td{rs} width='{W_TERM}' bgcolor='{bg}' align='center' valign='middle' "
+                f"style='{td_css(ri, b_txt, W_TERM)}'>"
                 + _p(term, b_txt) + "</td>"
             )
+        # Rate
         html += (
-            f"<td bgcolor='{bg}' align='center' valign='middle' style='{td_css(ri, r_col)}'>"
+            f"<td width='{W_RATE}' bgcolor='{bg}' align='center' valign='middle' "
+            f"style='{td_css(ri, r_col, W_RATE)}'>"
             + _p(rate_str, r_col) + "</td>"
         )
         html += "</tr>"
