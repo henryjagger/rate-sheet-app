@@ -326,26 +326,48 @@ def save_rate_to_history(issuer, credit_rating, term, rate):
     store[key]["entries"] = [entry] + existing[:14]
     _save_history_to_disk()
 
-INSURANCE_URLS = {
-    "CDIC":             "https://www.cdic.ca",
-    "DICO":             "https://www.fsrao.ca",
-    "FSRA":             "https://www.fsrao.ca",
-    "DGCM":             "https://www.dgcm.ca",
-    "CUDIC":            "https://www.cudic.gov.bc.ca",
-    "CUDGM":            "https://www.dgcm.ca",
-    "CUIM":             "https://www.cuim.ca",
-    "DEPOSIT GUARANTEE":"https://www.dgcm.ca",
+INSURANCE_URLS_PATH = os.path.join(os.path.expanduser("~"), ".ratesheet", "insurance_urls.json")
+
+_DEFAULT_INSURANCE_URLS = {
+    "CDIC":  "https://www.cdic.ca",
+    "DICO":  "https://www.fsrao.ca",
+    "FSRA":  "https://www.fsrao.ca",
+    "DGCM":  "https://www.dgcm.ca",
+    "CUDIC": "https://www.cudic.gov.bc.ca",
+    "CUDGM": "https://www.dgcm.ca",
+    "CUIM":  "https://www.cuim.ca",
 }
 
+@st.cache_resource
+def _insurance_url_store():
+    store = dict(_DEFAULT_INSURANCE_URLS)
+    try:
+        if os.path.exists(INSURANCE_URLS_PATH):
+            with open(INSURANCE_URLS_PATH) as f:
+                store.clear()
+                store.update(json.load(f))
+    except Exception:
+        pass
+    return store
+
+def _save_insurance_urls():
+    store = _insurance_url_store()
+    try:
+        os.makedirs(os.path.dirname(INSURANCE_URLS_PATH), exist_ok=True)
+        with open(INSURANCE_URLS_PATH, "w") as f:
+            json.dump(dict(store), f, indent=2)
+    except Exception:
+        pass
 
 def find_insurance_match(text):
-    """Return (provider_key, url) for the first insurance provider found in text."""
+    """Return (provider_key, url) for the best match in text.
+    Sorts by key length descending so 'CUDIC (BC)' beats 'CUDIC'."""
+    store = _insurance_url_store()
     upper = str(text).upper()
-    for provider, url in INSURANCE_URLS.items():
-        if provider in upper:
-            return provider, url
+    for provider in sorted(store.keys(), key=len, reverse=True):
+        if provider.upper() in upper:
+            return provider, store[provider]
     return None, None
-
 
 def find_insurance_url(text):
     _, url = find_insurance_match(text)
@@ -2042,37 +2064,53 @@ with tab4:
         st.markdown("---")
         st.markdown("#### Insurance Provider Links")
         st.caption(
-            "These are the URLs the app hyperlinks when a provider abbreviation appears "
-            "in a credit rating. Edit any URL and click **Save Links**."
+            "The app hyperlinks any provider abbreviation that appears in a credit rating string. "
+            "Providers **not** listed here are shown as plain text — no link. "
+            "For the same abbreviation in different provinces, add separate entries like "
+            "**CUDIC (BC)** and **CUDIC (AB)** — the longer match always wins."
         )
 
-        current_urls = dict(INSURANCE_URLS)
-        edited_urls  = {}
-        for provider, url in current_urls.items():
-            col_a, col_b = st.columns([1, 3])
-            with col_a:
+        ins_store   = _insurance_url_store()
+        edited_urls = {}
+
+        # Header row
+        h1, h2, h3 = st.columns([1, 3, 0.4])
+        h1.caption("Abbreviation"); h2.caption("URL"); h3.caption("Del")
+
+        for provider in list(ins_store.keys()):
+            c1, c2, c3 = st.columns([1, 3, 0.4])
+            with c1:
                 st.text(provider)
-            with col_b:
+            with c2:
                 edited_urls[provider] = st.text_input(
-                    provider, value=url, label_visibility="collapsed",
+                    provider, value=ins_store[provider],
+                    label_visibility="collapsed",
                     key=f"ins_url_{provider}"
                 )
+            with c3:
+                if st.button("✕", key=f"del_ins_{provider}", help=f"Remove {provider}"):
+                    del ins_store[provider]
+                    _save_insurance_urls()
+                    st.rerun()
 
-        st.markdown("**Add new provider**")
-        nc1, nc2 = st.columns([1, 3])
-        with nc1:
+        st.markdown("**Add provider**")
+        na1, na2, na3 = st.columns([1, 3, 0.4])
+        with na1:
             new_abbr = st.text_input("Abbreviation", key="new_ins_abbr",
-                                     placeholder="e.g. DGCF")
-        with nc2:
-            new_url  = st.text_input("URL", key="new_ins_url",
-                                     placeholder="https://...")
+                                     placeholder="e.g. CUDIC (AB)")
+        with na2:
+            new_url = st.text_input("URL", key="new_ins_url",
+                                    placeholder="https://...")
+        with na3:
+            st.write("")  # spacer
 
-        if st.button("Save Links", key="save_ins_links"):
-            INSURANCE_URLS.clear()
-            INSURANCE_URLS.update({k: v.strip() for k, v in edited_urls.items() if v.strip()})
+        if st.button("💾 Save Links", key="save_ins_links"):
+            ins_store.clear()
+            ins_store.update({k: v.strip() for k, v in edited_urls.items() if v.strip()})
             if new_abbr.strip() and new_url.strip():
-                INSURANCE_URLS[new_abbr.strip().upper()] = new_url.strip()
-            st.success("Links updated for this session. They reset on next deploy — paste them into the source code to make them permanent.")
+                ins_store[new_abbr.strip()] = new_url.strip()
+            _save_insurance_urls()
+            st.success("Saved — changes apply immediately to all tables.")
 
         st.markdown("---")
         st.markdown("#### Usage Statistics")
