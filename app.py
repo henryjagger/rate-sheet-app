@@ -203,7 +203,7 @@ def build_copy_html(rows, style=None):
             f"background-color:{h_bg};color:{h_txt};"
             f"font-family:{h_fnt},sans-serif;font-size:{h_sz}pt;"
             f"font-weight:{'bold' if h_bold else 'normal'};"
-            f"border:{bdr_hdr};padding:0px {pad*2}px;"
+            f"border:{bdr_hdr};padding:2px {pad*2}px;"
             f"text-align:center;vertical-align:middle;"
             f"height:{ROW_H_PT};mso-line-height-rule:exactly;{w}"
         )
@@ -215,7 +215,7 @@ def build_copy_html(rows, style=None):
         return (
             f"background-color:{bg};color:{color};"
             f"font-family:{b_fnt},sans-serif;font-size:{b_sz}pt;"
-            f"border:{bdr_body};padding:0px {pad*2}px;"
+            f"border:{bdr_body};padding:2px {pad*2}px;"
             f"text-align:center;vertical-align:middle;"
             f"height:{ROW_H_PT};mso-line-height-rule:exactly;{w}{nw}"
         )
