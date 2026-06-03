@@ -1757,104 +1757,10 @@ with tab1:
         df_display["Rate"] = df_display["Rate"].apply(lambda x: f"{x * 100:.2f}%")
 
         st.dataframe(df_display, width="stretch", hide_index=True)
-
-        btn_col1, btn_col2 = st.columns([1, 1])
-
-        with btn_col1:
-            st.download_button(
-                label="Download as Excel",
-                data=st.session_state.query_excel,
-                file_name="custom_query.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-
-        with btn_col2:
-            # Build styled HTML table for rich paste into Excel/Word/Outlook
-            # <font> tags used inside headers so Outlook's Word renderer shows white text
-            headers = df_display.columns.tolist()
-            th_style = "border:1px solid #ccc;padding:6px 12px;background-color:#000000;font-family:Calibri,sans-serif;font-size:11pt;"
-            td_style = "border:1px solid #ccc;padding:6px 12px;font-family:Calibri,sans-serif;font-size:11pt;text-align:center;"
-            td_rate_style = td_style + "color:#C00000;"
-            header_row = "<tr>" + "".join(
-                f"<th style='{th_style}' bgcolor='#000000'><font color='#ffffff' face='Calibri'><b>{h}</b></font></th>"
-                for h in headers
-            ) + "</tr>"
-            # Compute rowspans for the Term column so consecutive identical terms merge
-            rows_list = list(df_display.itertuples(index=False, name=None))
-            term_col_idx = headers.index("Term") if "Term" in headers else None
-            rowspans = []
-            if term_col_idx is not None:
-                i = 0
-                while i < len(rows_list):
-                    span = 1
-                    while i + span < len(rows_list) and rows_list[i + span][term_col_idx] == rows_list[i][term_col_idx]:
-                        span += 1
-                    rowspans.extend([span] + [0] * (span - 1))
-                    i += span
-            else:
-                rowspans = [1] * len(rows_list)
-
-            td_merge_style = td_style + "vertical-align:middle;"
-            data_rows = ""
-            for row_idx, row_vals in enumerate(rows_list):
-                cells = ""
-                for col_idx, (col, val) in enumerate(zip(headers, row_vals)):
-                    if term_col_idx is not None and col_idx == term_col_idx:
-                        span = rowspans[row_idx]
-                        if span == 0:
-                            continue
-                        span_attr = f" rowspan='{span}'" if span > 1 else ""
-                        cells += f"<td{span_attr} style='{td_merge_style}'><font face='Calibri'>{val}</font></td>"
-                    elif col == "Rate":
-                        cells += f"<td style='{td_rate_style}'><font face='Calibri' color='#C00000'>{val}</font></td>"
-                    elif col == "Credit Rating & Guarantee":
-                        linked = linkify_insurance_html(str(val))
-                        cells += f"<td style='{td_style}'><font face='Calibri'>{linked}</font></td>"
-                    else:
-                        cells += f"<td style='{td_style}'><font face='Calibri'>{val}</font></td>"
-                data_rows += f"<tr>{cells}</tr>"
-            html_table = f"<table style='border-collapse:collapse;'>{header_row}{data_rows}</table>"
-
-            def js_escape(s):
-                return s.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
-
-            html_js = js_escape(html_table)
-            tsv_js = js_escape(df_display.to_csv(sep="\t", index=False))
-
-            components.html(f"""
-            <button onclick="(async () => {{
-                try {{
-                    const html = `{html_js}`;
-                    const plain = `{tsv_js}`;
-                    const item = new ClipboardItem({{
-                        'text/html':  new Blob([html],  {{type: 'text/html'}}),
-                        'text/plain': new Blob([plain], {{type: 'text/plain'}})
-                    }});
-                    await navigator.clipboard.write([item]);
-                }} catch(e) {{
-                    await navigator.clipboard.writeText(`{tsv_js}`);
-                }}
-                this.textContent = '✓ Copied!';
-                setTimeout(() => this.textContent = 'Copy to Clipboard', 2000);
-            }})()" style="
-                background: transparent;
-                color: #111111;
-                border: 1px solid rgba(0,0,0,0.25);
-                border-radius: 1px;
-                padding: 0 16px;
-                font-size: 11px;
-                font-family: 'Inter', sans-serif;
-                font-weight: 600;
-                text-transform: uppercase;
-                letter-spacing: 0.14em;
-                cursor: pointer;
-                height: 38px;
-                width: 100%;
-                transition: all 0.22s ease;
-            " onmouseover="this.style.background='#111111';this.style.color='#ffffff';"
-               onmouseout="this.style.background='transparent';this.style.color='#111111';"
-            >Copy to Clipboard</button>
-            """, height=50)
+        _copy_button_component(
+            build_copy_html(st.session_state.query_results),
+            "Copy to Clipboard",
+        )
 
 with tab2:
     st.write("Generate a formatted rate sheet from the data entered in the Master Data tab.")
