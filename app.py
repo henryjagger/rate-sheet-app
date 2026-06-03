@@ -134,7 +134,7 @@ def build_copy_html(rows, style=None):
     ROW_H_PT  = "15.87pt"
     ROW_H_PX  = "21"
     # Column widths: 1 cm ≈ 37.795 px
-    W_CR   = "274"   # Credit Rating & Guarantee: 7.24 cm
+    W_CR   = "283"   # Credit Rating & Guarantee: 7.49 cm
     W_TERM = "208"   # Term: 5.5 cm
     W_RATE = "132"   # Rate: 3.5 cm
     # Issuer: no fixed width — nowrap so it fits content on one line
