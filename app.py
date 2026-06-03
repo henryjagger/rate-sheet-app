@@ -644,13 +644,35 @@ def build_lookup(df_lookup):
     return lookup
 
 
-def _clean_amount(amount_str):
-    """Strip 'Over '/'over '/'>' prefixes — always display as (*Min $X), never 'Over $X'."""
+def _format_amount(amount_str):
+    """Parse any dollar amount and return in $XM or $XXXK format.
+    Handles: $1,000,000 / $500K / $1M / 500000 / Over $500K / >$1M etc."""
     import re
     s = str(amount_str).strip()
-    s = re.sub(r'^[Oo]ver\s+', '', s)   # remove "Over " or "over "
-    s = re.sub(r'^>\s*',       '', s)   # remove ">"
-    return s.strip()
+    s = re.sub(r'^[Oo]ver\s+', '', s)     # strip "Over "
+    s = re.sub(r'^>\s*',        '', s)    # strip ">"
+    s = re.sub(r'[\$,\s]',      '', s)    # strip $, commas, spaces
+
+    m = re.match(r'^([\d.]+)([KMBkmb]?)$', s)
+    if not m:
+        return str(amount_str).strip()    # unrecognised — return as-is
+
+    num  = float(m.group(1))
+    unit = m.group(2).upper()
+
+    # Convert to raw value
+    multipliers = {"K": 1_000, "M": 1_000_000, "B": 1_000_000_000}
+    value = num * multipliers.get(unit, 1)
+
+    # Format back to $XM or $XXXK
+    if value >= 1_000_000:
+        n = value / 1_000_000
+        return f"${int(n)}M" if n == int(n) else f"${n:.1f}M"
+    elif value >= 1_000:
+        n = value / 1_000
+        return f"${int(n)}K" if n == int(n) else f"${n:.1f}K"
+    else:
+        return f"${int(value)}"
 
 
 def display_name_with_min_max(raw_name, lookup):
@@ -661,15 +683,15 @@ def display_name_with_min_max(raw_name, lookup):
         return clean_text(raw_name)
 
     label   = info["display_name"]
-    min_amt = _clean_amount(info["min_amount"]) if info["min_amount"] else ""
-    max_amt = _clean_amount(info["max_amount"]) if info["max_amount"] else ""
+    min_amt = _format_amount(info["min_amount"]) if info["min_amount"] else ""
+    max_amt = _format_amount(info["max_amount"]) if info["max_amount"] else ""
 
     if min_amt and max_amt:
-        label += f" ({min_amt}-{max_amt})"
+        label += f" (*Min {min_amt} *Max {max_amt})"
     elif min_amt:
-        label += f" (Min {min_amt})"
+        label += f" (*Min {min_amt})"
     elif max_amt:
-        label += f" (Max {max_amt})"
+        label += f" (*Max {max_amt})"
 
     return label
 
@@ -864,7 +886,7 @@ def _base_issuer_key(display_name):
 def _parse_minimum(display_name):
     """Extract the minimum dollar amount from a display name. Lower = better for client."""
     import re
-    m = re.search(r'\*?Min\s+\$?([\d.]+)\s*([KMBkmb]?)', str(display_name))
+    m = re.search(r'\*Min\s+\$?([\d.]+)\s*([KMBkmb]?)', str(display_name))
     if not m:
         return 0
     num = float(m.group(1))
