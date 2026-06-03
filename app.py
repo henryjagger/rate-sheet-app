@@ -13,7 +13,8 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.cell.rich_text import CellRichText, TextBlock
 from openpyxl.cell.text import InlineFont
 
-LOOKUP_PATH        = "institution_lookup.xlsx"
+PRIMARY_LOOKUP_PATH = "institution_lookup_primary.xlsx"
+LOOKUP_PATH         = "institution_lookup.xlsx"   # backup
 HISTORY_PATH       = os.path.join(os.path.expanduser("~"), ".ratesheet", "special_rates_history.json")
 TABLE_STYLE_PATH   = os.path.join(os.path.expanduser("~"), ".ratesheet", "table_style.json")
 
@@ -1510,13 +1511,23 @@ if "special_rates" not in st.session_state:
     st.session_state.special_rates = empty_special_rates_df()
 
 
-@st.cache_data
-def load_backend_lookup():
-    if not os.path.exists(LOOKUP_PATH):
-        return None
-    df = pd.read_excel(LOOKUP_PATH)
+def _load_one_lookup(path):
+    if not os.path.exists(path):
+        return {}
+    df = pd.read_excel(path)
     df.columns = [str(c).strip().lower() for c in df.columns]
     return build_lookup(df)
+
+@st.cache_data
+def load_backend_lookup():
+    """Load primary lookup first; fill any gaps from the backup file."""
+    primary = _load_one_lookup(PRIMARY_LOOKUP_PATH)
+    backup  = _load_one_lookup(LOOKUP_PATH)
+    if not primary and not backup:
+        return None
+    # Backup provides the base; primary overrides it entry-by-entry
+    combined = {**backup, **primary}
+    return combined if combined else None
 
 
 lookup = load_backend_lookup()
@@ -2057,15 +2068,20 @@ with tab4:
 
         st.markdown("---")
         st.markdown("#### Update Institution Lookup File")
-        new_lookup = st.file_uploader("Upload new institution_lookup.xlsx", type=["xlsx"], key="admin_lookup")
+        st.caption(
+            "Uploads replace the **primary** lookup (`institution_lookup_primary.xlsx`). "
+            "The original `institution_lookup.xlsx` remains as a permanent backup — "
+            "any institution not found in the primary is looked up there automatically."
+        )
+        new_lookup = st.file_uploader("Upload primary lookup (.xlsx)", type=["xlsx"], key="admin_lookup")
         if st.button("Save Lookup File"):
             if not new_lookup:
                 st.warning("Please upload a file first.")
             else:
-                with open(LOOKUP_PATH, "wb") as f:
+                with open(PRIMARY_LOOKUP_PATH, "wb") as f:
                     f.write(new_lookup.read())
                 st.cache_data.clear()
-                st.success("Lookup file updated. To make permanent, push the new file to GitHub.")
+                st.success("Primary lookup updated. To make it permanent, commit the file to GitHub.")
 
         st.markdown("---")
         st.markdown("#### Insurance Provider Links")
