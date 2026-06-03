@@ -1109,14 +1109,29 @@ def get_master_file():
     return buf
 
 SPECIAL_RATES_COLS = ["Issuer", "Credit Rating", "Term", "Rate"]
+_BLANK = {"", "nan", "none", "None", "NaN"}
 
 def empty_special_rates_df():
+    # Term must be None (not "") so SelectboxColumn treats it as unset
     return pd.DataFrame({
         "Issuer":        pd.Series([""] * 10, dtype=str),
         "Credit Rating": pd.Series([""] * 10, dtype=str),
-        "Term":          pd.Series([""] * 10, dtype=str),
+        "Term":          pd.Series([None] * 10, dtype=object),
         "Rate":          pd.Series([""] * 10, dtype=str),
     })
+
+def normalize_special_rates_df(df):
+    """Ensure correct dtypes after any data_editor / reload operation."""
+    result = df.copy()
+    for col in ["Issuer", "Credit Rating", "Rate"]:
+        if col in result.columns:
+            result[col] = result[col].astype(str).replace({v: "" for v in _BLANK}).fillna("")
+    if "Term" in result.columns:
+        # SelectboxColumn requires None for empty cells, not ""
+        result["Term"] = result["Term"].apply(
+            lambda v: None if (v is None or str(v).strip() in _BLANK) else str(v).strip()
+        )
+    return result
 
 def get_special_rate_rows(selected_terms=None):
     df = st.session_state.special_rates.copy()
@@ -1124,22 +1139,19 @@ def get_special_rate_rows(selected_terms=None):
     for _, row in df.iterrows():
         def _s(col):
             v = row.get(col, "")
-            return "" if (v is None or (isinstance(v, float) and pd.isna(v))) else str(v).strip()
+            return "" if (v is None or str(v).strip() in _BLANK) else str(v).strip()
         issuer = _s("Issuer")
-        if not issuer or issuer.lower() == "nan":
+        if not issuer:
             continue
         term = _s("Term")
-        if not term or term.lower() == "nan":
+        if not term:
             continue
         rate = parse_rate(_s("Rate"))
         if rate < 0.01:
             continue
         if selected_terms is not None and term not in selected_terms:
             continue
-        rating = _s("Credit Rating")
-        if rating.lower() == "nan":
-            rating = ""
-        rows.append([issuer, rating, term, rate])
+        rows.append([issuer, _s("Credit Rating"), term, rate])
     return rows
 
 @st.cache_resource
@@ -1194,9 +1206,9 @@ with tab_data:
                 st.session_state.master_grid   = pd.DataFrame(
                     shared["master_grid"], columns=shared["master_cols"]
                 ).astype(str).fillna("")
-                st.session_state.special_rates = pd.DataFrame(
-                    shared["special_rates"], columns=SPECIAL_RATES_COLS
-                ).astype(str).fillna("")
+                st.session_state.special_rates = normalize_special_rates_df(
+                    pd.DataFrame(shared["special_rates"], columns=SPECIAL_RATES_COLS)
+                )
                 st.rerun()
 
     st.markdown("---")
@@ -1265,11 +1277,9 @@ with tab_data:
             st.rerun()
 
     term_options_list = [t[0] for t in TERM_COLUMNS]
-    st.caption("Term options: " + "  ·  ".join(term_options_list))
 
-    # Pass session state directly — never a copy.
-    # Passing a new object every rerun makes Streamlit treat it as fresh
-    # input, resetting the widget's pending-edit state and wiping typed data.
+    # Pass session state directly — never a copy. A fresh object every rerun
+    # makes Streamlit treat it as new input and reset pending edits.
     special_edited = st.data_editor(
         st.session_state.special_rates,
         num_rows="dynamic",
@@ -1278,23 +1288,25 @@ with tab_data:
         column_config={
             "Issuer":        st.column_config.TextColumn("Issuer",         width="large"),
             "Credit Rating": st.column_config.TextColumn("Credit Rating",  width="large"),
-            "Term":          st.column_config.TextColumn("Term",           width="medium"),
+            "Term":          st.column_config.SelectboxColumn(
+                                 "Term", options=term_options_list, width="medium"
+                             ),
             "Rate":          st.column_config.TextColumn("Rate",           width="small"),
         },
     )
-    # Always write back unconditionally — conditional equals() checks can
-    # cause edits to be silently dropped when the comparison misfires.
-    st.session_state.special_rates = special_edited.astype(str).fillna("")
+    # Always write back unconditionally using the normaliser so Term cells
+    # stay as None (not "") which SelectboxColumn requires for empty rows.
+    st.session_state.special_rates = normalize_special_rates_df(special_edited)
 
     # Auto-save completed rows to the issuer history database
     for _, row in st.session_state.special_rates.iterrows():
-        issuer = str(row.get("Issuer", "")).strip()
-        term   = str(row.get("Term",   "")).strip()
-        rate   = str(row.get("Rate",   "")).strip()
-        if issuer and term and rate and issuer not in ("", "nan") and term not in ("", "nan"):
+        issuer = str(row.get("Issuer", "") or "").strip()
+        term   = str(row.get("Term",   "") or "").strip()
+        rate   = str(row.get("Rate",   "") or "").strip()
+        if issuer and term and rate and issuer not in _BLANK and term not in _BLANK:
             save_rate_to_history(
                 issuer,
-                str(row.get("Credit Rating", "")).strip(),
+                str(row.get("Credit Rating", "") or "").strip(),
                 term, rate,
             )
 
@@ -1373,8 +1385,9 @@ with tab_data:
                                     st.session_state.special_rates["Issuer"].astype(str).str.strip().ne("")
                                 ]
                                 st.session_state.special_rates = (
-                                    pd.concat([existing, new_row], ignore_index=True)
-                                    .astype(str).fillna("")
+                                    normalize_special_rates_df(
+                                        pd.concat([existing, new_row], ignore_index=True)
+                                    )
                                 )
                                 st.rerun()
                     elif not lookup_info:
@@ -1410,8 +1423,9 @@ with tab_data:
                                     st.session_state.special_rates["Issuer"].astype(str).str.strip().ne("")
                                 ]
                                 st.session_state.special_rates = (
-                                    pd.concat([existing, new_row], ignore_index=True)
-                                    .astype(str).fillna("")
+                                    normalize_special_rates_df(
+                                        pd.concat([existing, new_row], ignore_index=True)
+                                    )
                                 )
                                 save_rate_to_history(name, qa_rating, qa_term, qa_rate.strip())
                                 st.rerun()
