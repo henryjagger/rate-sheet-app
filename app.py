@@ -184,11 +184,21 @@ def build_copy_html(rows, style=None):
     b_o = "<b>" if h_bold else ""
     b_c = "</b>" if h_bold else ""
 
+    # Outlook treats cell content as paragraphs; paragraph align overrides td align.
+    # Wrapping in <p align="center"> is the only reliable centering fix for Outlook.
+    def _p(content, color):
+        return (
+            f"<p align='center' style='margin:0;padding:0;text-align:center;'>"
+            f"<font face='{b_fnt}' color='{color}'>{content}</font>"
+            f"</p>"
+        )
+
     def th_cell(label):
         return (
             f"<th bgcolor='{h_bg}' align='center' style='{th_css}'>"
+            f"<p align='center' style='margin:0;padding:0;text-align:center;'>"
             f"<font face='{h_fnt}' color='{h_txt}'>{b_o}{label}{b_c}</font>"
-            f"</th>"
+            f"</p></th>"
         )
 
     html = (
@@ -208,27 +218,23 @@ def build_copy_html(rows, style=None):
         bg       = row_bg(ri)
 
         html += "<tr>"
-        # Issuer
         html += (
             f"<td bgcolor='{bg}' align='center' valign='middle' style='{td_css(ri, b_txt)}'>"
-            f"<font face='{b_fnt}' color='{b_txt}'>{issuer}</font></td>"
+            + _p(issuer, b_txt) + "</td>"
         )
-        # Credit Rating
         html += (
             f"<td bgcolor='{bg}' align='center' valign='middle' style='{td_css(ri, b_txt)}'>"
-            f"<font face='{b_fnt}' color='{b_txt}'>{linkify_outlook(str(rating))}</font></td>"
+            + _p(linkify_outlook(str(rating)), b_txt) + "</td>"
         )
-        # Term (rowspan)
         if span > 0:
             rs = f" rowspan='{span}'" if span > 1 else ""
             html += (
                 f"<td{rs} bgcolor='{bg}' align='center' valign='middle' style='{td_css(ri, b_txt)}'>"
-                f"<font face='{b_fnt}' color='{b_txt}'>{term}</font></td>"
+                + _p(term, b_txt) + "</td>"
             )
-        # Rate
         html += (
             f"<td bgcolor='{bg}' align='center' valign='middle' style='{td_css(ri, r_col)}'>"
-            f"<font face='{b_fnt}' color='{r_col}'>{rate_str}</font></td>"
+            + _p(rate_str, r_col) + "</td>"
         )
         html += "</tr>"
 
