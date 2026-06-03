@@ -412,6 +412,32 @@ def _save_insurance_urls():
     except Exception:
         pass
 
+DISAMBIGUATE_PATH = os.path.join(os.path.expanduser("~"), ".ratesheet", "province_disambiguate.json")
+
+@st.cache_resource
+def _disambiguate_store():
+    """Providers that need province appended from master data (e.g. CUDGC → CUDGC (SK))."""
+    store = {"providers": []}
+    try:
+        if os.path.exists(DISAMBIGUATE_PATH):
+            with open(DISAMBIGUATE_PATH) as f:
+                store.update(json.load(f))
+    except Exception:
+        pass
+    return store
+
+def _save_disambiguate():
+    store = _disambiguate_store()
+    try:
+        os.makedirs(os.path.dirname(DISAMBIGUATE_PATH), exist_ok=True)
+        with open(DISAMBIGUATE_PATH, "w") as f:
+            json.dump(store, f, indent=2)
+    except Exception:
+        pass
+
+def get_disambiguate_providers():
+    return [p.strip().upper() for p in _disambiguate_store().get("providers", []) if p.strip()]
+
 def find_insurance_match(text):
     """Return (provider_key, url) for the best match in text.
     Sorts by key length descending so 'CUDIC (BC)' beats 'CUDIC'."""
@@ -659,10 +685,28 @@ def rating_from_master_row(row, term_type):
 
 
 def rating_with_fallback(issuer_raw, row, term_type, lookup):
-    """Institution lookup first; if not found, fall back to master data columns."""
+    """Institution lookup first; if not found, fall back to master data columns.
+    If the rating contains a province-disambiguated provider (e.g. CUDGC),
+    the institution's province from the master data is appended so
+    province-specific URLs resolve correctly (CUDGC → CUDGC (SK))."""
     rating = rating_and_insurance(issuer_raw, term_type, lookup)
     if not rating:
         rating = rating_from_master_row(row, term_type)
+
+    disambiguate = get_disambiguate_providers()
+    if rating and disambiguate:
+        province = clean_text(row.get("province", "")).strip().upper()
+        if province:
+            for provider in disambiguate:
+                idx = rating.upper().find(provider)
+                if idx != -1:
+                    actual = rating[idx: idx + len(provider)]
+                    rating = (
+                        rating[:idx]
+                        + f"{actual} ({province})"
+                        + rating[idx + len(provider):]
+                    )
+                    break
     return rating
 
 
@@ -2233,6 +2277,46 @@ with tab4:
                 ins_store[new_abbr.strip()] = new_url.strip()
             _save_insurance_urls()
             st.success("Saved — changes apply immediately to all tables.")
+
+        # ── Province Disambiguation ───────────────────────────────────────
+        st.markdown("---")
+        st.markdown("#### Province Disambiguation")
+        st.caption(
+            "Providers listed here will have the institution's province from the "
+            "master data automatically appended to the abbreviation when building "
+            "the rating string — e.g. **CUDGC** becomes **CUDGC (SK)** or "
+            "**CUDGC (AB)** — so province-specific URLs above are matched correctly. "
+            "Add the province-specific entries (e.g. *CUDGC (SK)* and *CUDGC (AB)*) "
+            "in the Insurance Provider Links section above."
+        )
+
+        dis_store = _disambiguate_store()
+        dis_providers = list(dis_store.get("providers", []))
+
+        for i, prov in enumerate(dis_providers):
+            dc1, dc2 = st.columns([5, 1])
+            dc1.write(prov)
+            if dc2.button("✕", key=f"del_dis_{i}", help=f"Remove {prov}"):
+                dis_providers.pop(i)
+                dis_store["providers"] = dis_providers
+                _save_disambiguate()
+                st.rerun()
+
+        da1, da2 = st.columns([4, 1])
+        with da1:
+            new_dis = st.text_input("Add provider to disambiguate by province",
+                                    key="new_dis_prov",
+                                    placeholder="e.g. CUDGC")
+        with da2:
+            st.write("")
+            if st.button("Add →", key="add_dis_prov"):
+                if new_dis.strip():
+                    entry = new_dis.strip().upper()
+                    if entry not in [p.upper() for p in dis_providers]:
+                        dis_providers.append(entry)
+                        dis_store["providers"] = dis_providers
+                        _save_disambiguate()
+                        st.rerun()
 
         st.markdown("---")
         st.markdown("#### Usage Statistics")
