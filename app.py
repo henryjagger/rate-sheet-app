@@ -846,7 +846,7 @@ def create_excel(output):
     return output_stream
 
 
-def generate_report(master_file, lookup):
+def generate_report(master_file, lookup, fi_only=False):
     df_master = pd.read_excel(master_file)
 
     df_master.columns = [
@@ -877,6 +877,11 @@ def generate_report(master_file, lookup):
 
             if rate < 0.01:
                 continue
+
+            if fi_only:
+                fi_val = clean_text(row.get("take fi money", "")).lower()
+                if fi_val not in ("yes", "y"):
+                    continue
 
             issuer_raw = row.iloc[0]
 
@@ -912,6 +917,27 @@ def generate_report(master_file, lookup):
         output.extend(term_rows)
 
     return output
+
+
+_CREDIT_KEYWORDS = ("R-1", "R-2", "AA", "BBB", "A (HIGH)", "A (MID)", "A (LOW)")
+
+def is_credit_or_guarantee(rating):
+    upper = str(rating).upper()
+    return any(k in upper for k in _CREDIT_KEYWORDS) or "100%" in upper
+
+def sort_output(output):
+    """Sort rows into TERM_COLUMNS order, rate descending within each term."""
+    from collections import defaultdict
+    groups = defaultdict(list)
+    for row in output:
+        groups[row[2]].append(row)
+    result = []
+    for tc in TERM_COLUMNS:
+        if tc[0] in groups:
+            result.extend(sorted(groups.pop(tc[0]), key=lambda r: r[3], reverse=True))
+    for rows in groups.values():
+        result.extend(sorted(rows, key=lambda r: r[3], reverse=True))
+    return result
 
 
 def apply_query_filters(results, min_rate, insurance_filter, institution_search,
@@ -1409,9 +1435,11 @@ def _shared_rate_data():
             "special_rates": None, "saved_at": None}
 
 if "query_results" not in st.session_state:
-    st.session_state.query_results = None
-    st.session_state.query_excel   = None
-    st.session_state.rate_sheet_html = None
+    st.session_state.query_results    = None
+    st.session_state.query_excel      = None
+    st.session_state.rs_all_in_html   = None
+    st.session_state.rs_credit_html   = None
+    st.session_state.rs_fi_html       = None
 if "master_grid" not in st.session_state:
     st.session_state.master_grid = empty_master_df()
 if "special_rates" not in st.session_state:
@@ -1831,49 +1859,66 @@ with tab1:
         )
 
 with tab2:
-    st.write("Generate a formatted rate sheet from the data entered in the Master Data tab.")
-
-    n = master_row_count()
+    n         = master_row_count()
     n_special = len(get_special_rate_rows())
+    has_data  = n > 0 or n_special > 0
+
     if n:
-        st.info(f"{n} institutions loaded from Master Data tab." +
-                (f"  ·  {n_special} special rate{'s' if n_special != 1 else ''}." if n_special else ""))
+        st.info(
+            f"{n} institutions in Master Data."
+            + (f"  ·  {n_special} special rate{'s' if n_special != 1 else ''}." if n_special else "")
+        )
     elif n_special:
         st.info(f"{n_special} special rate{'s' if n_special != 1 else ''} entered.")
     else:
-        st.warning("No data entered yet — go to the **Master Data** tab and add rates.")
+        st.warning("No data yet — go to the **Master Data** tab and paste your rates.")
 
-    special_preview = get_special_rate_rows()
-    if special_preview:
-        st.info(f"{len(special_preview)} special rate{'s' if len(special_preview) != 1 else ''} will be included: " +
-                ", ".join(f"{r[0]} ({r[2]})" for r in special_preview))
-
-    if st.button("Generate Formatted Rate Sheet"):
-        has_master  = master_row_count() > 0
-        has_special = len(get_special_rate_rows()) > 0
-        if not has_master and not has_special:
+    def _build_and_store(key, fi_only=False, credit_only=False):
+        if not has_data:
             st.error("No data entered — add master rates or special rates in the Master Data tab first.")
-        else:
-            output = generate_report(get_master_file(), lookup) if has_master else []
-            output = output + get_special_rate_rows()
-            # Merge into correct order: TERM_COLUMNS sequence, rate desc within each term
-            from collections import defaultdict
-            _term_rank = {t[0]: i for i, t in enumerate(TERM_COLUMNS)}
-            _groups = defaultdict(list)
-            for row in output:
-                _groups[row[2]].append(row)
-            output = []
-            for tc in TERM_COLUMNS:
-                if tc[0] in _groups:
-                    output.extend(sorted(_groups.pop(tc[0]), key=lambda r: r[3], reverse=True))
-            for rows in _groups.values():  # any terms not in TERM_COLUMNS
-                output.extend(sorted(rows, key=lambda r: r[3], reverse=True))
-            st.session_state.rate_sheet_html = build_copy_html(output)
-            log_event("rate_sheet")
+            return
+        base    = generate_report(get_master_file(), lookup, fi_only=fi_only) if n > 0 else []
+        special = get_special_rate_rows()
+        if credit_only:
+            base    = [r for r in base    if is_credit_or_guarantee(r[1])]
+            special = [r for r in special if is_credit_or_guarantee(r[1])]
+        output = sort_output(base + special)
+        st.session_state[key] = build_copy_html(output)
+        log_event("rate_sheet")
 
-    if st.session_state.get("rate_sheet_html"):
-        st.success(f"Rate sheet ready — {len([r for r in st.session_state.rate_sheet_html.split('<tr>') if '<td' in r])} rows.")
-        _copy_button_component(st.session_state.rate_sheet_html, "Copy Rate Sheet to Clipboard")
+    # ── 1. All In GIC Rates ───────────────────────────────────────────────────
+    st.subheader("All In GIC Rates")
+    st.caption("Every available rate from the master data, sorted by term then rate.")
+    if st.button("Generate — All In GIC Rates"):
+        _build_and_store("rs_all_in_html")
+    if st.session_state.get("rs_all_in_html"):
+        _copy_button_component(st.session_state.rs_all_in_html, "Copy — All In GIC Rates")
+
+    st.markdown("---")
+
+    # ── 2. Credit Rated & 100% Guarantees ────────────────────────────────────
+    st.subheader("Credit Rated & 100% Guarantees Only")
+    st.caption(
+        "Only institutions with a formal credit rating (R-1, R-2, AA, BBB …) "
+        "or a 100% guarantee. All unrated and uninsured rows are removed."
+    )
+    if st.button("Generate — Credit Rated & 100% Guarantees"):
+        _build_and_store("rs_credit_html", credit_only=True)
+    if st.session_state.get("rs_credit_html"):
+        _copy_button_component(st.session_state.rs_credit_html, "Copy — Credit Rated & Guarantees")
+
+    st.markdown("---")
+
+    # ── 3. FI Rate Tables ─────────────────────────────────────────────────────
+    st.subheader("FI Rate Tables")
+    st.caption(
+        "Only institutions where **Take FI Money** = Yes in your master data. "
+        "Special rates are included alongside."
+    )
+    if st.button("Generate — FI Rate Tables"):
+        _build_and_store("rs_fi_html", fi_only=True)
+    if st.session_state.get("rs_fi_html"):
+        _copy_button_component(st.session_state.rs_fi_html, "Copy — FI Rate Table")
 
 with tab3:
     st.subheader("Master Rates File — Required Format")
@@ -1886,7 +1931,7 @@ with tab3:
         {"Column Name": "Issuer",                                  "Used by App": "Yes", "Description": "Name of the institution (must be in column A).", "Example": "Royal Bank of Canada"},
         {"Column Name": "Insurance/Credit Rating Short Term",      "Used by App": "No",  "Description": "For reference only — ratings are managed in the backend lookup.", "Example": "R-1 (High)"},
         {"Column Name": "Insurance/Credit Rating Long Term",       "Used by App": "No",  "Description": "For reference only — ratings are managed in the backend lookup.", "Example": "AA"},
-        {"Column Name": "Take FI money?",                          "Used by App": "No",  "Description": "Internal reference field.", "Example": "Yes"},
+        {"Column Name": "Take FI Money",                           "Used by App": "Yes", "Description": "Set to 'Yes' to include this institution in the FI Rate Table.", "Example": "Yes"},
         {"Column Name": "Available",                               "Used by App": "Yes", "Description": "Must say 'available' for the row to be included. Any other value skips it.", "Example": "available"},
         {"Column Name": "Province",                                "Used by App": "No",  "Description": "Internal reference field.", "Example": "ON"},
         {"Column Name": "Offers USD",                              "Used by App": "No",  "Description": "Internal reference field.", "Example": "Yes"},
