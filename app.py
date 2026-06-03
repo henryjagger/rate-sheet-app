@@ -2094,7 +2094,7 @@ with tab4:
                     st.rerun()
 
         st.markdown("**Add provider**")
-        na1, na2, na3 = st.columns([1, 3, 0.4])
+        na1, na2, na3 = st.columns([1, 3, 0.8])
         with na1:
             new_abbr = st.text_input("Abbreviation", key="new_ins_abbr",
                                      placeholder="e.g. CUDIC (AB)")
@@ -2102,7 +2102,14 @@ with tab4:
             new_url = st.text_input("URL", key="new_ins_url",
                                     placeholder="https://...")
         with na3:
-            st.write("")  # spacer
+            st.write("")  # vertical align
+            if st.button("Add →", key="add_ins_provider"):
+                if new_abbr.strip() and new_url.strip():
+                    ins_store[new_abbr.strip()] = new_url.strip()
+                    _save_insurance_urls()
+                    st.rerun()
+                else:
+                    st.warning("Enter both an abbreviation and a URL first.")
 
         if st.button("💾 Save Links", key="save_ins_links"):
             ins_store.clear()
