@@ -289,6 +289,103 @@ def build_copy_html(rows, style=None):
     return html
 
 
+def _build_simple_table(headers, rows, style=None):
+    """Outlook-compatible table with fixed columns and no rowspans (for placeholder sections)."""
+    s        = style or load_table_style()
+    bw       = s["border_width"]
+    h_bg     = s["header_bg"];  h_txt = s["header_text"]
+    h_fnt    = s["header_font"]; h_sz = s["header_size"]; h_bold = s["header_bold"]
+    b_fnt    = s["body_font"];  b_sz  = s["body_size"];  b_txt  = s["body_text"]
+    b_bg     = s["body_bg"];    alt   = s["alt_row_bg"]; bdr_c  = s["border_color"]
+    H_PT     = "15.87pt";       H_PX  = "21"
+    hdr_bdr  = f"{bw}px solid {h_bg}"
+    bdy_bdr  = f"{bw}px solid {bdr_c}"
+    _PB      = ("margin:0cm;margin-bottom:.0001pt;padding:0;mso-pagination:none;"
+                "mso-line-height-rule:exactly;text-align:center;")
+    b_o = "<b>" if h_bold else ""; b_c = "</b>" if h_bold else ""
+
+    th_css = (f"background-color:{h_bg};color:{h_txt};font-family:{h_fnt},sans-serif;"
+              f"font-size:{h_sz}pt;font-weight:{'bold' if h_bold else 'normal'};"
+              f"border:{hdr_bdr};padding:2px 12px;text-align:center;"
+              f"height:{H_PT};mso-line-height-rule:exactly;")
+
+    def td_css(ri):
+        bg = alt if ri % 2 == 1 else b_bg
+        return (f"background-color:{bg};color:{b_txt};font-family:{b_fnt},sans-serif;"
+                f"font-size:{b_sz}pt;border:{bdy_bdr};padding:2px 12px;"
+                f"text-align:center;vertical-align:middle;height:{H_PT};"
+                f"mso-line-height-rule:exactly;")
+
+    def cell_p(text, color, face):
+        return (f"<p align='center' style='{_PB}color:{color};'>"
+                f"<span style='color:{color};mso-color-alt:windowtext;'>"
+                f"<font face='{face}' color='{color}'>{text}</font></span></p>")
+
+    html = ("<table border='0' cellpadding='0' cellspacing='0' "
+            "style='border-collapse:collapse;'>"
+            f"<thead><tr height='{H_PX}'>")
+    for h in headers:
+        html += (f"<th bgcolor='{h_bg}' align='center' height='{H_PX}' style='{th_css}'>"
+                 + cell_p(f"{b_o}{h}{b_c}", h_txt, h_fnt) + "</th>")
+    html += "</tr></thead><tbody>"
+    for ri, row in enumerate(rows):
+        bg = alt if ri % 2 == 1 else b_bg
+        html += f"<tr height='{H_PX}'>"
+        for cell in row:
+            html += (f"<td bgcolor='{bg}' align='center' valign='middle' style='{td_css(ri)}'>"
+                     + cell_p(str(cell), b_txt, b_fnt) + "</td>")
+        html += "</tr>"
+    html += "</tbody></table>"
+    return html
+
+
+def build_full_email_html(gic_cad_rows, style=None):
+    """Full morning email: greeting, notes, four sections, sign-off."""
+    s    = style or load_table_style()
+    font = s.get("body_font", "Calibri")
+    size = s.get("body_size", 11)
+
+    P = (f"margin:0cm;margin-bottom:.0001pt;padding:0;mso-pagination:none;"
+         f"font-family:{font},sans-serif;font-size:{size}pt;")
+
+    def para(text):
+        return (f"<p style='{P}'><span style='font-family:{font},sans-serif;"
+                f"font-size:{size}pt;mso-color-alt:windowtext;'>{text}</span></p>")
+
+    def heading(text):
+        return (f"<p style='{P}'><span style='font-family:{font},sans-serif;"
+                f"font-size:{size}pt;font-weight:bold;text-decoration:underline;"
+                f"mso-color-alt:windowtext;'>{text}</span></p>")
+
+    def spacer():
+        return f"<p style='{P}'>&nbsp;</p>"
+
+    ph3 = [["[Institution]", "[Rating]", "[0.00%]"]] * 3
+
+    return "".join([
+        para("Hi All,"),
+        spacer(),
+        para("*"),
+        para("*"),
+        para("*"),
+        spacer(),
+        heading("High-Interest Savings Account (CAD)"),
+        _build_simple_table(["Issuer", "Credit Rating", "Rate"], ph3, s),
+        spacer(),
+        heading("High-Interest Savings Account (USD)"),
+        _build_simple_table(["Issuer", "Credit Rating", "Rate"], ph3, s),
+        spacer(),
+        heading("Guaranteed Investment Certificates (CAD)"),
+        build_copy_html(gic_cad_rows, s),
+        spacer(),
+        heading("Guaranteed Investment Certificates (USD)"),
+        _build_simple_table(["Issuer", "Term", "Rate"],
+                            [["[Institution]", "[Term]", "[0.00%]"]] * 3, s),
+        spacer(),
+        para("Thanks,"),
+    ])
+
+
 def _copy_button_component(html_str, btn_label="Copy to Clipboard"):
     """
     Render a copy-to-clipboard button.
@@ -1650,6 +1747,7 @@ if "query_results" not in st.session_state:
     st.session_state.query_excel      = None
     st.session_state.rs_all_in_html   = None
     st.session_state.rs_credit_html   = None
+    st.session_state.full_email_html  = None
 if "master_grid" not in st.session_state:
     st.session_state.master_grid = empty_master_df()
 if "special_rates_v2" not in st.session_state:
@@ -2152,6 +2250,28 @@ with tab2:
         _build_and_store("rs_credit_html", credit_only=True)
     if st.session_state.get("rs_credit_html"):
         _copy_button_component(st.session_state.rs_credit_html, "Copy — Credit Rated & Guarantees")
+
+    st.markdown("---")
+
+    # ── Full Morning Email ────────────────────────────────────────────────────
+    st.subheader("Full Morning Email")
+    st.caption(
+        "Generates the complete email ready to paste into Outlook. "
+        "GIC CAD uses live data. HISA CAD, HISA USD, and GIC USD have "
+        "placeholder rows — edit those directly in Outlook after pasting."
+    )
+    if st.button("Generate Full Email"):
+        has_master  = master_row_count() > 0
+        has_special = len(get_special_rate_rows()) > 0
+        if not has_master and not has_special:
+            st.error("No data entered — add master rates in the Master Data tab first.")
+        else:
+            base   = generate_report(get_master_file(), lookup) if master_row_count() > 0 else []
+            output = sort_output(base + get_special_rate_rows())
+            st.session_state.full_email_html = build_full_email_html(output)
+            log_event("rate_sheet")
+    if st.session_state.get("full_email_html"):
+        _copy_button_component(st.session_state.full_email_html, "Copy Full Email")
 
 
 with tab3:
