@@ -157,22 +157,27 @@ def build_copy_html(rows, style=None):
         )
 
     # ── Cell content wrapper ────────────────────────────────────────────────
+    # margin:0cm + margin-bottom:.0001pt + mso-pagination:none is the exact
+    # format Word uses internally for compact table cells. Without these,
+    # Outlook adds paragraph spacing that pushes rows beyond the set height.
+    _P_BASE = (
+        "margin:0cm;margin-bottom:.0001pt;padding:0;"
+        "mso-pagination:none;mso-line-height-rule:exactly;"
+        "text-align:center;"
+    )
+
     def _p(content, color):
         return (
-            f"<p align='center' style='"
-            f"margin:0;padding:0;text-align:center;"
-            f"color:{color};mso-line-height-rule:exactly;'>"
+            f"<p align='center' style='{_P_BASE}color:{color};'>"
             + _span(content, color) +
-            f"</p>"
+            "</p>"
         )
 
     def _p_hdr(content):
         b_o = "<b>" if h_bold else ""
         b_c = "</b>" if h_bold else ""
         return (
-            f"<p align='center' style='"
-            f"margin:0;padding:0;text-align:center;"
-            f"color:{h_txt};mso-line-height-rule:exactly;'>"
+            f"<p align='center' style='{_P_BASE}color:{h_txt};'>"
             f"<span style='color:{h_txt};mso-color-alt:windowtext;'>"
             f"<font face='{h_fnt}' color='{h_txt}'>{b_o}{content}{b_c}</font>"
             f"</span></p>"
@@ -198,9 +203,9 @@ def build_copy_html(rows, style=None):
             f"background-color:{h_bg};color:{h_txt};"
             f"font-family:{h_fnt},sans-serif;font-size:{h_sz}pt;"
             f"font-weight:{'bold' if h_bold else 'normal'};"
-            f"border:{bdr_hdr};padding:{pad}px {pad*2}px;"
-            f"text-align:center;height:{ROW_H_PT};"
-            f"mso-line-height-rule:exactly;{w}"
+            f"border:{bdr_hdr};padding:0px {pad*2}px;"
+            f"text-align:center;vertical-align:middle;"
+            f"height:{ROW_H_PT};mso-line-height-rule:exactly;{w}"
         )
 
     def td_css(ri, color, width="", nowrap=False):
@@ -210,7 +215,7 @@ def build_copy_html(rows, style=None):
         return (
             f"background-color:{bg};color:{color};"
             f"font-family:{b_fnt},sans-serif;font-size:{b_sz}pt;"
-            f"border:{bdr_body};padding:{pad}px {pad*2}px;"
+            f"border:{bdr_body};padding:0px {pad*2}px;"
             f"text-align:center;vertical-align:middle;"
             f"height:{ROW_H_PT};mso-line-height-rule:exactly;{w}{nw}"
         )
