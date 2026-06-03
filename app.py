@@ -703,7 +703,7 @@ def rating_with_fallback(issuer_raw, row, term_type, lookup):
                     actual = rating[idx: idx + len(provider)]
                     rating = (
                         rating[:idx]
-                        + f"{actual} ({province})"
+                        + f"{actual}({province})"
                         + rating[idx + len(provider):]
                     )
                     break
