@@ -1031,6 +1031,17 @@ def is_credit_or_guarantee(rating):
     upper = str(rating).upper()
     return any(k in upper for k in _CREDIT_KEYWORDS) or "100%" in upper
 
+def fi_rating(rating):
+    """FI table: keep only the credit rating; swap 100%/insurance-only for an em dash."""
+    r = str(rating).strip()
+    if not r or r == "* CANNOT SOURCE, ENTER MANUALLY *":
+        return r
+    has_credit = any(k in r.upper() for k in _CREDIT_KEYWORDS)
+    if has_credit:
+        # Strip the insurance suffix (everything after " – ")
+        return r.split(" – ")[0].strip() if " – " in r else r
+    return "—"  # em dash — no credit rating, only guarantee/insurance
+
 def sort_output(output):
     """Sort rows into TERM_COLUMNS order, rate descending within each term."""
     from collections import defaultdict
@@ -1999,6 +2010,9 @@ with tab2:
             base    = [r for r in base    if is_credit_or_guarantee(r[1])]
             special = [r for r in special if is_credit_or_guarantee(r[1])]
         output = sort_output(base + special)
+        if fi_only:
+            # FI tables show only the credit rating; 100%/insurance-only → em dash
+            output = [[r[0], fi_rating(r[1]), r[2], r[3]] for r in output]
         st.session_state[key] = build_copy_html(output)
         log_event("rate_sheet")
 
