@@ -616,6 +616,15 @@ def build_lookup(df_lookup):
     return lookup
 
 
+def _clean_amount(amount_str):
+    """Strip 'Over '/'over '/'>' prefixes — always display as (*Min $X), never 'Over $X'."""
+    import re
+    s = str(amount_str).strip()
+    s = re.sub(r'^[Oo]ver\s+', '', s)   # remove "Over " or "over "
+    s = re.sub(r'^>\s*',       '', s)   # remove ">"
+    return s.strip()
+
+
 def display_name_with_min_max(raw_name, lookup):
     key = normalize_name(raw_name)
     info = lookup.get(key)
@@ -623,16 +632,16 @@ def display_name_with_min_max(raw_name, lookup):
     if not info:
         return clean_text(raw_name)
 
-    label = info["display_name"]
+    label   = info["display_name"]
+    min_amt = _clean_amount(info["min_amount"]) if info["min_amount"] else ""
+    max_amt = _clean_amount(info["max_amount"]) if info["max_amount"] else ""
 
-    if info["min_amount"] and info["max_amount"]:
-        label += f" ({info['min_amount']}-{info['max_amount']})"
-
-    elif info["min_amount"]:
-        label += f" (*Min {info['min_amount']})"
-
-    elif info["max_amount"]:
-        label += f" (*Max {info['max_amount']})"
+    if min_amt and max_amt:
+        label += f" ({min_amt}-{max_amt})"
+    elif min_amt:
+        label += f" (*Min {min_amt})"
+    elif max_amt:
+        label += f" (*Max {max_amt})"
 
     return label
 
