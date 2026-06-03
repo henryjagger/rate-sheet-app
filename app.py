@@ -13,8 +13,99 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.cell.rich_text import CellRichText, TextBlock
 from openpyxl.cell.text import InlineFont
 
-LOOKUP_PATH = "institution_lookup.xlsx"
-HISTORY_PATH = os.path.join(os.path.expanduser("~"), ".ratesheet", "special_rates_history.json")
+LOOKUP_PATH        = "institution_lookup.xlsx"
+HISTORY_PATH       = os.path.join(os.path.expanduser("~"), ".ratesheet", "special_rates_history.json")
+TABLE_STYLE_PATH   = os.path.join(os.path.expanduser("~"), ".ratesheet", "table_style.json")
+
+DEFAULT_TABLE_STYLE = {
+    "header_bg":      "#000000",
+    "header_text":    "#ffffff",
+    "header_font":    "Calibri",
+    "header_size":    11,
+    "header_bold":    True,
+    "body_font":      "Calibri",
+    "body_size":      11,
+    "body_text":      "#000000",
+    "body_bg":        "#ffffff",
+    "alt_row_bg":     "#ffffff",
+    "rate_color":     "#C00000",
+    "border_color":   "#cccccc",
+    "border_width":   1,
+    "cell_padding":   6,
+}
+
+FONT_OPTIONS = ["Calibri", "Arial", "Helvetica", "Times New Roman",
+                "Georgia", "Verdana", "Trebuchet MS", "Tahoma"]
+
+@st.cache_resource
+def _table_style_store():
+    store = dict(DEFAULT_TABLE_STYLE)
+    try:
+        if os.path.exists(TABLE_STYLE_PATH):
+            with open(TABLE_STYLE_PATH) as f:
+                store.update(json.load(f))
+    except Exception:
+        pass
+    return store
+
+def load_table_style():
+    return dict(_table_style_store())
+
+def save_table_style(updates):
+    store = _table_style_store()
+    store.update(updates)
+    try:
+        os.makedirs(os.path.dirname(TABLE_STYLE_PATH), exist_ok=True)
+        with open(TABLE_STYLE_PATH, "w") as f:
+            json.dump(dict(store), f, indent=2)
+    except Exception:
+        pass
+
+def _style_preview_html(s):
+    bw   = s["border_width"]
+    pad  = s["cell_padding"]
+    border = f"{bw}px solid {s['border_color']}"
+    th_style = (
+        f"background:{s['header_bg']};color:{s['header_text']};"
+        f"font-family:{s['header_font']},sans-serif;font-size:{s['header_size']}pt;"
+        f"font-weight:{'bold' if s['header_bold'] else 'normal'};"
+        f"border:{border};padding:{pad}px {pad*2}px;text-align:center;"
+    )
+    def td_style(i, is_rate=False):
+        bg = s["alt_row_bg"] if i % 2 == 1 else s["body_bg"]
+        color = s["rate_color"] if is_rate else s["body_text"]
+        return (
+            f"background:{bg};color:{color};"
+            f"font-family:{s['body_font']},sans-serif;font-size:{s['body_size']}pt;"
+            f"border:{border};padding:{pad}px {pad*2}px;text-align:center;"
+        )
+    rows = [
+        ("Royal Bank of Canada",  "R-1 (High) – CDIC", "1 Year Fixed",  "3.75%"),
+        ("TD Bank",               "R-1 (High) – CDIC", "1 Year Fixed",  "3.70%"),
+        ("Oaken Financial",       "100% Guarantee – CDIC", "2 Year Fixed", "4.10%"),
+        ("EQ Bank",               "BBB (High) – CDIC", "2 Year Fixed",  "4.05%"),
+    ]
+    body = ""
+    for i, (issuer, rating, term, rate) in enumerate(rows):
+        body += (
+            f"<tr>"
+            f"<td style='{td_style(i)}'>{issuer}</td>"
+            f"<td style='{td_style(i)}'>{rating}</td>"
+            f"<td style='{td_style(i)}'>{term}</td>"
+            f"<td style='{td_style(i, is_rate=True)}'>{rate}</td>"
+            f"</tr>"
+        )
+    return (
+        f"<table style='border-collapse:collapse;width:100%;'>"
+        f"<thead><tr>"
+        f"<th style='{th_style}'>Issuer</th>"
+        f"<th style='{th_style}'>Credit Rating & Guarantee</th>"
+        f"<th style='{th_style}'>Term</th>"
+        f"<th style='{th_style}'>Rate</th>"
+        f"</tr></thead>"
+        f"<tbody>{body}</tbody>"
+        f"</table>"
+    )
 
 
 @st.cache_resource
@@ -1828,6 +1919,80 @@ with tab4:
             st.dataframe(df_events, width="stretch", hide_index=True)
         else:
             st.info("No activity recorded yet.")
+
+        # ── Table Format Editor ───────────────────────────────────────────────
+        st.markdown("---")
+        st.markdown("#### Table Format")
+        st.caption(
+            "Adjust every aspect of the table appearance below. "
+            "The preview updates live as you make changes. "
+            "Click **Save Format** when it looks exactly right."
+        )
+
+        s = load_table_style()
+
+        def _fi(label, key, min_v, max_v, default):
+            return st.number_input(label, min_v, max_v, s.get(key, default),
+                                   step=1, key=f"ts_{key}")
+        def _cp(label, key):
+            return st.color_picker(label, s.get(key, DEFAULT_TABLE_STYLE[key]),
+                                   key=f"ts_{key}")
+        def _sel(label, key):
+            opts = FONT_OPTIONS
+            val  = s.get(key, "Calibri")
+            idx  = opts.index(val) if val in opts else 0
+            return st.selectbox(label, opts, index=idx, key=f"ts_{key}")
+        def _cb(label, key):
+            return st.checkbox(label, s.get(key, True), key=f"ts_{key}")
+
+        ctrl_col, prev_col = st.columns([1, 1.6])
+
+        with ctrl_col:
+            st.markdown("**Header row**")
+            h_bg    = _cp("Background colour",  "header_bg")
+            h_text  = _cp("Text colour",         "header_text")
+            h_font  = _sel("Font",               "header_font")
+            h_size  = _fi("Font size (pt)", "header_size", 6, 28, 11)
+            h_bold  = _cb("Bold",                "header_bold")
+
+            st.markdown("**Body rows**")
+            b_font  = _sel("Font",               "body_font")
+            b_size  = _fi("Font size (pt)", "body_size", 6, 28, 11)
+            b_text  = _cp("Text colour",         "body_text")
+            b_bg    = _cp("Row 1 background",    "body_bg")
+            alt_bg  = _cp("Row 2 background (alternating)", "alt_row_bg")
+
+            st.markdown("**Accents & borders**")
+            rate_c  = _cp("Rate colour",         "rate_color")
+            bord_c  = _cp("Border colour",       "border_color")
+            bord_w  = _fi("Border width (px)",   "border_width", 0, 5, 1)
+            cell_p  = _fi("Cell padding (px)",   "cell_padding", 2, 20, 6)
+
+            new_style = {
+                "header_bg": h_bg,   "header_text": h_text,
+                "header_font": h_font, "header_size": int(h_size),
+                "header_bold": h_bold,
+                "body_font": b_font,  "body_size": int(b_size),
+                "body_text": b_text,  "body_bg": b_bg, "alt_row_bg": alt_bg,
+                "rate_color": rate_c,
+                "border_color": bord_c, "border_width": int(bord_w),
+                "cell_padding": int(cell_p),
+            }
+
+            if st.button("💾  Save Format", key="save_table_fmt"):
+                save_table_style(new_style)
+                st.success("Table format saved — all Copy buttons will now use this style.")
+
+            if st.button("Reset to defaults", key="reset_table_fmt"):
+                save_table_style(DEFAULT_TABLE_STYLE)
+                st.rerun()
+
+        with prev_col:
+            st.markdown("**Live preview**")
+            st.markdown(
+                _style_preview_html(new_style),
+                unsafe_allow_html=True,
+            )
 
 st.markdown("---")
 st.caption(
