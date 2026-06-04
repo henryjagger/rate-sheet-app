@@ -1673,7 +1673,12 @@ if not st.session_state.authenticated:
         password = st.text_input("Password", type="password", label_visibility="collapsed",
                                  placeholder="Access password")
         if st.button("Enter", use_container_width=True):
-            if password in {load_passwords()["app_password"], "CMG"}:
+            pw = load_passwords()
+            if password == pw["admin_password"]:
+                st.session_state.authenticated = True
+                st.session_state.admin_authenticated = True
+                st.rerun()
+            elif password in {pw["app_password"], "CMG"}:
                 st.session_state.authenticated = True
                 st.rerun()
             else:
@@ -1779,6 +1784,8 @@ if "query_results" not in st.session_state:
     st.session_state.rs_all_in_html   = None
     st.session_state.rs_credit_html   = None
     st.session_state.full_email_html  = None
+if "query_removed" not in st.session_state:
+    st.session_state.query_removed = set()   # set of (issuer, term) tuples removed by user
 if "master_grid" not in st.session_state:
     st.session_state.master_grid = empty_master_df()
 if "special_rates_v2" not in st.session_state:
@@ -1814,8 +1821,210 @@ if lookup is None:
         "Place institution_lookup.xlsx in the app folder and restart."
     )
 
-tab_data, tab1, tab2, tab3, tab4 = st.tabs([
-    "Master Data", "Custom Query", "Rate Sheet Generator", "File Format Guide", "Admin"
+# ── Admin panel (admin password login goes straight here) ─────────────────
+if st.session_state.get("admin_authenticated"):
+    st.subheader("Admin Panel")
+    if st.button("← Exit Admin", key="admin_logout"):
+        st.session_state.admin_authenticated = False
+        st.rerun()
+
+    st.markdown("---")
+    st.markdown("#### Change Passwords")
+    _pc1, _pc2 = st.columns(2)
+    with _pc1:
+        new_app_pw = st.text_input("New app password", type="password", key="new_app_pw")
+    with _pc2:
+        new_admin_pw = st.text_input("New admin password", type="password", key="new_admin_pw")
+    if st.button("Save Passwords"):
+        if not new_app_pw and not new_admin_pw:
+            st.warning("Enter at least one new password.")
+        else:
+            _cur = load_passwords()
+            save_passwords(
+                new_app_pw   if new_app_pw   else _cur["app_password"],
+                new_admin_pw if new_admin_pw else _cur["admin_password"],
+            )
+            st.success("Passwords updated.")
+
+    st.markdown("---")
+    st.markdown("#### Update Institution Lookup File")
+    st.caption(
+        "Uploads replace the **primary** lookup (`institution_lookup_primary.xlsx`). "
+        "The original `institution_lookup.xlsx` remains as a permanent backup — "
+        "any institution not found in the primary is looked up there automatically."
+    )
+    new_lookup = st.file_uploader("Upload primary lookup (.xlsx)", type=["xlsx"], key="admin_lookup")
+    if st.button("Save Lookup File"):
+        if not new_lookup:
+            st.warning("Please upload a file first.")
+        else:
+            with open(PRIMARY_LOOKUP_PATH, "wb") as f:
+                f.write(new_lookup.read())
+            st.cache_data.clear()
+            st.success("Primary lookup updated.")
+
+    st.markdown("---")
+    st.markdown("#### Insurance Provider Links")
+    st.caption(
+        "Providers **not** listed here are shown as plain text — no link. "
+        "For the same abbreviation in different provinces, add separate entries like "
+        "**CUDIC (BC)** and **CUDIC (AB)** — the longer match always wins."
+    )
+    ins_store   = _insurance_url_store()
+    edited_urls = {}
+    h1, h2, h3 = st.columns([1, 3, 0.4])
+    h1.caption("Abbreviation"); h2.caption("URL"); h3.caption("Del")
+    for provider in list(ins_store.keys()):
+        c1, c2, c3 = st.columns([1, 3, 0.4])
+        with c1: st.text(provider)
+        with c2:
+            edited_urls[provider] = st.text_input(
+                provider, value=ins_store[provider],
+                label_visibility="collapsed", key=f"ins_url_{provider}")
+        with c3:
+            if st.button("✕", key=f"del_ins_{provider}", help=f"Remove {provider}"):
+                del ins_store[provider]; _save_insurance_urls(); st.rerun()
+    st.markdown("**Add provider**")
+    na1, na2, na3 = st.columns([1, 3, 0.8])
+    with na1: new_abbr = st.text_input("Abbreviation", key="new_ins_abbr", placeholder="e.g. CUDIC (AB)")
+    with na2: new_url  = st.text_input("URL", key="new_ins_url", placeholder="https://...")
+    with na3:
+        st.write("")
+        if st.button("Add →", key="add_ins_provider"):
+            if new_abbr.strip() and new_url.strip():
+                ins_store[new_abbr.strip()] = new_url.strip(); _save_insurance_urls(); st.rerun()
+            else: st.warning("Enter both an abbreviation and a URL first.")
+    if st.button("💾 Save Links", key="save_ins_links"):
+        ins_store.clear()
+        ins_store.update({k: v.strip() for k, v in edited_urls.items() if v.strip()})
+        if new_abbr.strip() and new_url.strip(): ins_store[new_abbr.strip()] = new_url.strip()
+        _save_insurance_urls(); st.success("Saved.")
+
+    st.markdown("---")
+    st.markdown("#### Province Disambiguation")
+    st.caption(
+        "Providers listed here will have the institution's province from the "
+        "master data automatically appended (e.g. CUDGC → CUDGC(SK)). "
+        "Add the province-specific entries in Insurance Provider Links above."
+    )
+    dis_store    = _disambiguate_store()
+    dis_providers = list(dis_store.get("providers", []))
+    for i, prov in enumerate(dis_providers):
+        dc1, dc2 = st.columns([5, 1])
+        dc1.write(prov)
+        if dc2.button("✕", key=f"del_dis_{i}"):
+            dis_providers.pop(i); dis_store["providers"] = dis_providers; _save_disambiguate(); st.rerun()
+    da1, da2 = st.columns([4, 1])
+    with da1: new_dis = st.text_input("Add provider", key="new_dis_prov", placeholder="e.g. CUDGC")
+    with da2:
+        st.write("")
+        if st.button("Add →", key="add_dis_prov"):
+            if new_dis.strip():
+                entry = new_dis.strip().upper()
+                if entry not in [p.upper() for p in dis_providers]:
+                    dis_providers.append(entry); dis_store["providers"] = dis_providers
+                    _save_disambiguate(); st.rerun()
+
+    st.markdown("---")
+    st.markdown("#### Feature Visibility")
+    st.caption("Hide tabs from regular users. Admin access is controlled by the admin password.")
+    _s = _app_settings_store()
+    fv1, fv2, fv3 = st.columns(3)
+    with fv1:
+        _md_on = _s.get("show_master_data", True)
+        if st.button(f"{'🟢 Master Data ON' if _md_on else '🔴 Master Data OFF'}", key="toggle_master_data"):
+            _s["show_master_data"] = not _md_on; _save_app_settings(); st.rerun()
+    with fv2:
+        _cq_on = _s.get("show_custom_query", True)
+        if st.button(f"{'🟢 Custom Query ON' if _cq_on else '🔴 Custom Query OFF'}", key="toggle_custom_query"):
+            _s["show_custom_query"] = not _cq_on; _save_app_settings(); st.rerun()
+    with fv3:
+        _rs_on = _s.get("show_rate_sheet", True)
+        if st.button(f"{'🟢 Rate Sheet ON' if _rs_on else '🔴 Rate Sheet OFF'}", key="toggle_rate_sheet"):
+            _s["show_rate_sheet"] = not _rs_on; _save_app_settings(); st.rerun()
+
+    st.markdown("---")
+    st.markdown("#### Login Page Announcement")
+    st.caption("Appears as a notice on the login page. Leave blank to show nothing.")
+    _cur_ann = _s.get("announcement", "")
+    _new_ann = st.text_area("Announcement", value=_cur_ann, height=80,
+                            key="admin_announcement",
+                            placeholder="e.g. System will be unavailable Dec 25.")
+    if st.button("Save Announcement", key="save_ann"):
+        _s["announcement"] = _new_ann.strip(); _save_app_settings()
+        st.success("Saved." if _new_ann.strip() else "Cleared.")
+
+    st.markdown("---")
+    st.markdown("#### Table Format")
+    st.caption("Adjust every aspect of the table appearance. Preview updates live. Click Save Format when ready.")
+    _s2 = load_table_style()
+    def _fi(label, key, min_v, max_v, default):
+        return st.number_input(label, min_v, max_v, _s2.get(key, default), step=1, key=f"ts_{key}")
+    def _cp(label, key):
+        return st.color_picker(label, _s2.get(key, DEFAULT_TABLE_STYLE[key]), key=f"ts_{key}")
+    def _sel(label, key):
+        opts = FONT_OPTIONS; val = _s2.get(key, "Calibri")
+        return st.selectbox(label, opts, index=opts.index(val) if val in opts else 0, key=f"ts_{key}")
+    def _cb(label, key):
+        return st.checkbox(label, _s2.get(key, True), key=f"ts_{key}")
+    ctrl_col, prev_col = st.columns([1, 1.6])
+    with ctrl_col:
+        st.markdown("**Header row**")
+        h_bg   = _cp("Background colour",  "header_bg")
+        h_text = _cp("Text colour",         "header_text")
+        h_font = _sel("Font",               "header_font")
+        h_size = _fi("Font size (pt)", "header_size", 6, 28, 11)
+        h_bold = _cb("Bold",                "header_bold")
+        st.markdown("**Body rows**")
+        b_font = _sel("Font",               "body_font")
+        b_size = _fi("Font size (pt)", "body_size", 6, 28, 11)
+        b_text = _cp("Text colour",         "body_text")
+        b_bg   = _cp("Row 1 background",    "body_bg")
+        alt_bg = _cp("Row 2 background (alternating)", "alt_row_bg")
+        st.markdown("**Accents & borders**")
+        rate_c = _cp("Rate colour",         "rate_color")
+        bord_c = _cp("Border colour",       "border_color")
+        bord_w = _fi("Border width (px)",   "border_width", 0, 5, 1)
+        cell_p = _fi("Cell padding (px)",   "cell_padding", 2, 20, 6)
+        new_style = {"header_bg": h_bg, "header_text": h_text, "header_font": h_font,
+                     "header_size": int(h_size), "header_bold": h_bold,
+                     "body_font": b_font, "body_size": int(b_size),
+                     "body_text": b_text, "body_bg": b_bg, "alt_row_bg": alt_bg,
+                     "rate_color": rate_c, "border_color": bord_c,
+                     "border_width": int(bord_w), "cell_padding": int(cell_p)}
+        if st.button("💾  Save Format", key="save_table_fmt"):
+            save_table_style(new_style); st.success("Table format saved.")
+        if st.button("Reset to defaults", key="reset_table_fmt"):
+            save_table_style(DEFAULT_TABLE_STYLE); st.rerun()
+    with prev_col:
+        st.markdown("**Live preview**")
+        st.markdown(_style_preview_html(new_style), unsafe_allow_html=True)
+
+    st.markdown("---")
+    st.markdown("#### Usage Statistics")
+    stats = load_stats()
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Rate Sheets Generated", stats.get("total_rate_sheets", 0))
+    m2.metric("Custom Queries Run", stats.get("total_queries", 0))
+    m3.metric("Total Actions", stats.get("total_rate_sheets", 0) + stats.get("total_queries", 0))
+    events = stats.get("events", [])
+    if events:
+        st.markdown("**Recent Activity**")
+        df_events = pd.DataFrame(list(reversed(events[:50])))
+        df_events["Type"] = df_events["Type"].map({
+            "rate_sheet": "Rate Sheet Generated",
+            "master_query": "Custom Query — Master File",
+            "sheet_query": "Custom Query — Formatted Sheet",
+        }).fillna(df_events["Type"])
+        st.dataframe(df_events, width="stretch", hide_index=True)
+    else:
+        st.info("No activity recorded yet.")
+
+    st.stop()   # don't render the regular tabs for admin users
+
+# ── Regular tabs (no Admin tab) ────────────────────────────────────────────
+tab_data, tab1, tab2, tab3 = st.tabs([
+    "Master Data", "Custom Query", "Rate Sheet Generator", "File Format Guide"
 ])
 
 with tab_data:
@@ -2217,24 +2426,75 @@ with tab1:
 
             if not results:
                 st.session_state.query_results = None
-                st.session_state.query_excel = None
+                st.session_state.query_excel   = None
                 st.info("No results matched your query.")
             else:
                 st.session_state.query_results = results
-                st.session_state.query_excel = create_excel(results)
+                st.session_state.query_removed = set()   # reset removals on new query
 
     if st.session_state.query_results:
-        df_display = pd.DataFrame(
-            st.session_state.query_results,
-            columns=["Issuer", "Credit Rating & Guarantee", "Term", "Rate"]
-        )
-        df_display["Rate"] = df_display["Rate"].apply(lambda x: f"{x * 100:.2f}%")
+        st.markdown("---")
 
-        st.dataframe(df_display, width="stretch", hide_index=True)
-        _copy_button_component(
-            build_copy_html(st.session_state.query_results),
-            "Copy to Clipboard",
-        )
+        # ── Commission deduction ──────────────────────────────────────────
+        comm_col, _ = st.columns([1, 3])
+        with comm_col:
+            commission_bps = st.number_input(
+                "Commission to deduct (bps)",
+                min_value=0, max_value=200, value=0, step=5,
+                help="25 bps deducted turns a 4.00% rate into 3.75%"
+            )
+        commission = commission_bps / 10000   # convert bps to decimal
+
+        # ── Build view: apply commission, filter removed rows, repopulate ─
+        raw = st.session_state.query_results
+        removed = st.session_state.query_removed
+
+        # Group by term so we can repopulate from next-best when one is deleted
+        from collections import defaultdict as _dd
+        _term_order = [r[2] for r in raw]
+        _seen = []
+        for t in _term_order:
+            if t not in _seen:
+                _seen.append(t)
+        term_groups = _dd(list)
+        for r in raw:
+            term_groups[r[2]].append(r)
+
+        display_rows = []
+        for term in _seen:
+            shown = 0
+            target = sum(1 for r in term_groups[term] if (r[0], r[2]) not in removed)
+            # count how many were originally shown for this term (before removes)
+            original_count = sum(1 for r in raw if r[2] == term and (r[0], r[2]) not in removed)
+            for r in term_groups[term]:
+                if (r[0], r[2]) in removed:
+                    continue
+                display_rows.append(r)
+
+        # Apply commission deduction to display rows
+        display_rows_adj = [
+            (r[0], r[1], r[2], max(0.0, r[3] - commission))
+            for r in display_rows
+        ]
+
+        # Show table with delete buttons
+        st.markdown("**Results** — click ✕ to remove a row and repopulate from next best:")
+        for i, row in enumerate(display_rows_adj):
+            issuer, rating, term, rate = row
+            c1, c2, c3, c4, c5 = st.columns([3, 4, 2, 1, 0.4])
+            c1.write(issuer)
+            c2.write(rating)
+            c3.write(term)
+            c4.write(f"{rate * 100:.2f}%")
+            if c5.button("✕", key=f"del_row_{i}_{issuer}_{term}"):
+                st.session_state.query_removed.add((issuer, term))
+                st.rerun()
+
+        if display_rows_adj:
+            _copy_button_component(
+                build_copy_html(display_rows_adj),
+                "Copy to Clipboard",
+            )
 
 with tab2:
     if not _app_settings_store().get("show_rate_sheet", True):
@@ -2348,301 +2608,6 @@ with tab3:
     st.dataframe(master_cols.set_index("Column Name").T, width="stretch")
     st.caption("Rates can be entered as percentages (3.75%) or decimals (0.0375). Blank cells or rates below 1% are ignored.")
 
-with tab4:
-    if not st.session_state.admin_authenticated:
-        _, acol, _ = st.columns([1, 1.2, 1])
-        with acol:
-            st.subheader("Admin Access")
-            admin_pw_input = st.text_input("Admin password", type="password", key="admin_pw_input")
-            if st.button("Enter", key="admin_login"):
-                if admin_pw_input == load_passwords()["admin_password"]:
-                    st.session_state.admin_authenticated = True
-                    st.rerun()
-                else:
-                    st.error("Incorrect admin password.")
-    else:
-        st.subheader("Admin Panel")
-
-        if st.button("Log Out of Admin", key="admin_logout"):
-            st.session_state.admin_authenticated = False
-            st.rerun()
-
-        st.markdown("---")
-        st.markdown("#### Change Passwords")
-        pc1, pc2 = st.columns(2)
-        with pc1:
-            new_app_pw = st.text_input("New app password", type="password", key="new_app_pw")
-        with pc2:
-            new_admin_pw = st.text_input("New admin password", type="password", key="new_admin_pw")
-        if st.button("Save Passwords"):
-            if not new_app_pw and not new_admin_pw:
-                st.warning("Enter at least one new password.")
-            else:
-                current = load_passwords()
-                save_passwords(
-                    new_app_pw if new_app_pw else current["app_password"],
-                    new_admin_pw if new_admin_pw else current["admin_password"]
-                )
-                st.success("Passwords updated for this session. To make permanent on Streamlit Cloud, also update secrets in the dashboard.")
-
-        st.markdown("---")
-        st.markdown("#### Update Institution Lookup File")
-        st.caption(
-            "Uploads replace the **primary** lookup (`institution_lookup_primary.xlsx`). "
-            "The original `institution_lookup.xlsx` remains as a permanent backup — "
-            "any institution not found in the primary is looked up there automatically."
-        )
-        new_lookup = st.file_uploader("Upload primary lookup (.xlsx)", type=["xlsx"], key="admin_lookup")
-        if st.button("Save Lookup File"):
-            if not new_lookup:
-                st.warning("Please upload a file first.")
-            else:
-                with open(PRIMARY_LOOKUP_PATH, "wb") as f:
-                    f.write(new_lookup.read())
-                st.cache_data.clear()
-                st.success("Primary lookup updated. To make it permanent, commit the file to GitHub.")
-
-        st.markdown("---")
-        st.markdown("#### Insurance Provider Links")
-        st.caption(
-            "The app hyperlinks any provider abbreviation that appears in a credit rating string. "
-            "Providers **not** listed here are shown as plain text — no link. "
-            "For the same abbreviation in different provinces, add separate entries like "
-            "**CUDIC (BC)** and **CUDIC (AB)** — the longer match always wins."
-        )
-
-        ins_store   = _insurance_url_store()
-        edited_urls = {}
-
-        # Header row
-        h1, h2, h3 = st.columns([1, 3, 0.4])
-        h1.caption("Abbreviation"); h2.caption("URL"); h3.caption("Del")
-
-        for provider in list(ins_store.keys()):
-            c1, c2, c3 = st.columns([1, 3, 0.4])
-            with c1:
-                st.text(provider)
-            with c2:
-                edited_urls[provider] = st.text_input(
-                    provider, value=ins_store[provider],
-                    label_visibility="collapsed",
-                    key=f"ins_url_{provider}"
-                )
-            with c3:
-                if st.button("✕", key=f"del_ins_{provider}", help=f"Remove {provider}"):
-                    del ins_store[provider]
-                    _save_insurance_urls()
-                    st.rerun()
-
-        st.markdown("**Add provider**")
-        na1, na2, na3 = st.columns([1, 3, 0.8])
-        with na1:
-            new_abbr = st.text_input("Abbreviation", key="new_ins_abbr",
-                                     placeholder="e.g. CUDIC (AB)")
-        with na2:
-            new_url = st.text_input("URL", key="new_ins_url",
-                                    placeholder="https://...")
-        with na3:
-            st.write("")  # vertical align
-            if st.button("Add →", key="add_ins_provider"):
-                if new_abbr.strip() and new_url.strip():
-                    ins_store[new_abbr.strip()] = new_url.strip()
-                    _save_insurance_urls()
-                    st.rerun()
-                else:
-                    st.warning("Enter both an abbreviation and a URL first.")
-
-        if st.button("💾 Save Links", key="save_ins_links"):
-            ins_store.clear()
-            ins_store.update({k: v.strip() for k, v in edited_urls.items() if v.strip()})
-            if new_abbr.strip() and new_url.strip():
-                ins_store[new_abbr.strip()] = new_url.strip()
-            _save_insurance_urls()
-            st.success("Saved — changes apply immediately to all tables.")
-
-        # ── Province Disambiguation ───────────────────────────────────────
-        st.markdown("---")
-        st.markdown("#### Province Disambiguation")
-        st.caption(
-            "Providers listed here will have the institution's province from the "
-            "master data automatically appended to the abbreviation when building "
-            "the rating string — e.g. **CUDGC** becomes **CUDGC (SK)** or "
-            "**CUDGC (AB)** — so province-specific URLs above are matched correctly. "
-            "Add the province-specific entries (e.g. *CUDGC (SK)* and *CUDGC (AB)*) "
-            "in the Insurance Provider Links section above."
-        )
-
-        dis_store = _disambiguate_store()
-        dis_providers = list(dis_store.get("providers", []))
-
-        for i, prov in enumerate(dis_providers):
-            dc1, dc2 = st.columns([5, 1])
-            dc1.write(prov)
-            if dc2.button("✕", key=f"del_dis_{i}", help=f"Remove {prov}"):
-                dis_providers.pop(i)
-                dis_store["providers"] = dis_providers
-                _save_disambiguate()
-                st.rerun()
-
-        da1, da2 = st.columns([4, 1])
-        with da1:
-            new_dis = st.text_input("Add provider to disambiguate by province",
-                                    key="new_dis_prov",
-                                    placeholder="e.g. CUDGC")
-        with da2:
-            st.write("")
-            if st.button("Add →", key="add_dis_prov"):
-                if new_dis.strip():
-                    entry = new_dis.strip().upper()
-                    if entry not in [p.upper() for p in dis_providers]:
-                        dis_providers.append(entry)
-                        dis_store["providers"] = dis_providers
-                        _save_disambiguate()
-                        st.rerun()
-
-        # ── Feature Visibility ────────────────────────────────────────────
-        st.markdown("---")
-        st.markdown("#### Feature Visibility")
-        st.caption("Hide tabs from regular users. Admin tab is always visible.")
-
-        _s = _app_settings_store()
-        fv1, fv2, fv3 = st.columns(3)
-        with fv1:
-            _md_on = _s.get("show_master_data", True)
-            if st.button(
-                f"{'🟢 Master Data ON' if _md_on else '🔴 Master Data OFF'}",
-                key="toggle_master_data"
-            ):
-                _s["show_master_data"] = not _md_on
-                _save_app_settings()
-                st.rerun()
-        with fv2:
-            _cq_on = _s.get("show_custom_query", True)
-            if st.button(
-                f"{'🟢 Custom Query ON' if _cq_on else '🔴 Custom Query OFF'}",
-                key="toggle_custom_query"
-            ):
-                _s["show_custom_query"] = not _cq_on
-                _save_app_settings()
-                st.rerun()
-        with fv3:
-            _rs_on = _s.get("show_rate_sheet", True)
-            if st.button(
-                f"{'🟢 Rate Sheet ON' if _rs_on else '🔴 Rate Sheet OFF'}",
-                key="toggle_rate_sheet"
-            ):
-                _s["show_rate_sheet"] = not _rs_on
-                _save_app_settings()
-                st.rerun()
-
-        # ── Announcement ──────────────────────────────────────────────────
-        st.markdown("---")
-        st.markdown("#### Login Page Announcement")
-        st.caption("Appears as a notice on the login page. Leave blank to show nothing.")
-        _cur_ann = _s.get("announcement", "")
-        _new_ann = st.text_area("Announcement", value=_cur_ann, height=80,
-                                key="admin_announcement",
-                                placeholder="e.g. System will be unavailable Dec 25.")
-        if st.button("Save Announcement", key="save_ann"):
-            _s["announcement"] = _new_ann.strip()
-            _save_app_settings()
-            st.success("Announcement saved." if _new_ann.strip() else "Announcement cleared.")
-
-        st.markdown("---")
-        st.markdown("#### Usage Statistics")
-        stats = load_stats()
-
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Rate Sheets Generated", stats.get("total_rate_sheets", 0))
-        m2.metric("Custom Queries Run", stats.get("total_queries", 0))
-        m3.metric("Total Actions", stats.get("total_rate_sheets", 0) + stats.get("total_queries", 0))
-
-        events = stats.get("events", [])
-        if events:
-            st.markdown("**Recent Activity**")
-            df_events = pd.DataFrame(events[::-1][:50])
-            df_events["Type"] = df_events["Type"].map({
-                "rate_sheet":   "Rate Sheet Generated",
-                "master_query": "Custom Query — Master File",
-                "sheet_query":  "Custom Query — Formatted Sheet",
-            }).fillna(df_events["Type"])
-            st.dataframe(df_events, width="stretch", hide_index=True)
-        else:
-            st.info("No activity recorded yet.")
-
-        # ── Table Format Editor ───────────────────────────────────────────────
-        st.markdown("---")
-        st.markdown("#### Table Format")
-        st.caption(
-            "Adjust every aspect of the table appearance below. "
-            "The preview updates live as you make changes. "
-            "Click **Save Format** when it looks exactly right."
-        )
-
-        s = load_table_style()
-
-        def _fi(label, key, min_v, max_v, default):
-            return st.number_input(label, min_v, max_v, s.get(key, default),
-                                   step=1, key=f"ts_{key}")
-        def _cp(label, key):
-            return st.color_picker(label, s.get(key, DEFAULT_TABLE_STYLE[key]),
-                                   key=f"ts_{key}")
-        def _sel(label, key):
-            opts = FONT_OPTIONS
-            val  = s.get(key, "Calibri")
-            idx  = opts.index(val) if val in opts else 0
-            return st.selectbox(label, opts, index=idx, key=f"ts_{key}")
-        def _cb(label, key):
-            return st.checkbox(label, s.get(key, True), key=f"ts_{key}")
-
-        ctrl_col, prev_col = st.columns([1, 1.6])
-
-        with ctrl_col:
-            st.markdown("**Header row**")
-            h_bg    = _cp("Background colour",  "header_bg")
-            h_text  = _cp("Text colour",         "header_text")
-            h_font  = _sel("Font",               "header_font")
-            h_size  = _fi("Font size (pt)", "header_size", 6, 28, 11)
-            h_bold  = _cb("Bold",                "header_bold")
-
-            st.markdown("**Body rows**")
-            b_font  = _sel("Font",               "body_font")
-            b_size  = _fi("Font size (pt)", "body_size", 6, 28, 11)
-            b_text  = _cp("Text colour",         "body_text")
-            b_bg    = _cp("Row 1 background",    "body_bg")
-            alt_bg  = _cp("Row 2 background (alternating)", "alt_row_bg")
-
-            st.markdown("**Accents & borders**")
-            rate_c  = _cp("Rate colour",         "rate_color")
-            bord_c  = _cp("Border colour",       "border_color")
-            bord_w  = _fi("Border width (px)",   "border_width", 0, 5, 1)
-            cell_p  = _fi("Cell padding (px)",   "cell_padding", 2, 20, 6)
-
-            new_style = {
-                "header_bg": h_bg,   "header_text": h_text,
-                "header_font": h_font, "header_size": int(h_size),
-                "header_bold": h_bold,
-                "body_font": b_font,  "body_size": int(b_size),
-                "body_text": b_text,  "body_bg": b_bg, "alt_row_bg": alt_bg,
-                "rate_color": rate_c,
-                "border_color": bord_c, "border_width": int(bord_w),
-                "cell_padding": int(cell_p),
-            }
-
-            if st.button("💾  Save Format", key="save_table_fmt"):
-                save_table_style(new_style)
-                st.success("Table format saved — all Copy buttons will now use this style.")
-
-            if st.button("Reset to defaults", key="reset_table_fmt"):
-                save_table_style(DEFAULT_TABLE_STYLE)
-                st.rerun()
-
-        with prev_col:
-            st.markdown("**Live preview**")
-            st.markdown(
-                _style_preview_html(new_style),
-                unsafe_allow_html=True,
-            )
 
 st.markdown("---")
 st.caption(
