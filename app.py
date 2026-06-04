@@ -1785,7 +1785,9 @@ if "query_results" not in st.session_state:
     st.session_state.rs_credit_html   = None
     st.session_state.full_email_html  = None
 if "query_removed" not in st.session_state:
-    st.session_state.query_removed = set()   # set of (issuer, term) tuples removed by user
+    st.session_state.query_removed = set()
+if "query_top_n" not in st.session_state:
+    st.session_state.query_top_n = 3
 if "master_grid" not in st.session_state:
     st.session_state.master_grid = empty_master_df()
 if "special_rates_v2" not in st.session_state:
@@ -2395,42 +2397,28 @@ with tab1:
         elif query_source == "Formatted Rate Sheet" and not formatted_sheet_file:
             st.error("Please upload a Formatted Rate Sheet.")
         else:
+            # Fetch a large pool (up to 50 per term) so deleted rows can be replaced
+            _pool_n = 50
             if query_source == "Formatted Rate Sheet":
-                results = query_from_sheet(
-                    formatted_sheet_file,
-                    selected_terms,
-                    int(top_n),
-                    credit_rated_only
-                )
+                pool = query_from_sheet(formatted_sheet_file, selected_terms, _pool_n, credit_rated_only)
                 log_event("sheet_query")
             else:
-                results = generate_custom_query(
-                    get_master_file(),
-                    lookup,
-                    selected_terms,
-                    int(top_n),
-                    credit_rated_only
-                )
+                pool = generate_custom_query(get_master_file(), lookup, selected_terms, _pool_n, credit_rated_only)
                 log_event("master_query")
 
-            results = results + get_special_rate_rows(selected_terms)
-
-            results = apply_query_filters(
-                results,
-                min_rate_pct / 100,
-                insurance_filter,
-                institution_search.strip(),
-                exclude_cannot_source,
-                sort_by,
+            pool = pool + get_special_rate_rows(selected_terms)
+            pool = apply_query_filters(
+                pool, min_rate_pct / 100, insurance_filter,
+                institution_search.strip(), exclude_cannot_source, sort_by,
             )
 
-            if not results:
+            if not pool:
                 st.session_state.query_results = None
-                st.session_state.query_excel   = None
                 st.info("No results matched your query.")
             else:
-                st.session_state.query_results = results
-                st.session_state.query_removed = set()   # reset removals on new query
+                st.session_state.query_results = pool
+                st.session_state.query_top_n   = int(top_n)
+                st.session_state.query_removed  = set()
 
     if st.session_state.query_results:
         st.markdown("---")
@@ -2439,46 +2427,45 @@ with tab1:
         comm_col, _ = st.columns([1, 3])
         with comm_col:
             commission_bps = st.number_input(
-                "Commission to deduct (bps)",
-                min_value=0, max_value=200, value=0, step=5,
-                help="25 bps deducted turns a 4.00% rate into 3.75%"
+                "Commission to deduct (bps)", min_value=0, max_value=200,
+                value=0, step=5, help="25 bps turns 4.00% → 3.75%"
             )
-        commission = commission_bps / 10000   # convert bps to decimal
+        commission = commission_bps / 10000
 
-        # ── Build view: apply commission, filter removed rows, repopulate ─
-        raw = st.session_state.query_results
-        removed = st.session_state.query_removed
-
-        # Group by term so we can repopulate from next-best when one is deleted
+        # ── Build display: top_n per term, skip removed, pull next-best ───
         from collections import defaultdict as _dd
-        _term_order = [r[2] for r in raw]
-        _seen = []
-        for t in _term_order:
-            if t not in _seen:
-                _seen.append(t)
-        term_groups = _dd(list)
-        for r in raw:
-            term_groups[r[2]].append(r)
+        pool    = st.session_state.query_results
+        removed = st.session_state.query_removed
+        top_n_d = st.session_state.get("query_top_n", 3)
+
+        # Preserve original term order
+        seen_terms = []
+        for r in pool:
+            if r[2] not in seen_terms:
+                seen_terms.append(r[2])
+
+        pool_by_term = _dd(list)
+        for r in pool:
+            pool_by_term[r[2]].append(r)
 
         display_rows = []
-        for term in _seen:
-            shown = 0
-            target = sum(1 for r in term_groups[term] if (r[0], r[2]) not in removed)
-            # count how many were originally shown for this term (before removes)
-            original_count = sum(1 for r in raw if r[2] == term and (r[0], r[2]) not in removed)
-            for r in term_groups[term]:
+        for term in seen_terms:
+            count = 0
+            for r in pool_by_term[term]:
+                if count >= top_n_d:
+                    break
                 if (r[0], r[2]) in removed:
                     continue
                 display_rows.append(r)
+                count += 1
 
-        # Apply commission deduction to display rows
+        # Apply commission
         display_rows_adj = [
             (r[0], r[1], r[2], max(0.0, r[3] - commission))
             for r in display_rows
         ]
 
-        # Show table with delete buttons
-        st.markdown("**Results** — click ✕ to remove a row and repopulate from next best:")
+        st.markdown("**Results** — click ✕ to remove a row; the next best replaces it:")
         for i, row in enumerate(display_rows_adj):
             issuer, rating, term, rate = row
             c1, c2, c3, c4, c5 = st.columns([3, 4, 2, 1, 0.4])
