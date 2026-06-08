@@ -43,6 +43,9 @@ _DEFAULT_APP_SETTINGS = {
     "show_rate_sheet":    True,
     "announcement":       "",
     "email_template":     _DEFAULT_EMAIL_TEMPLATE,
+    "email_font":         "Calibri",
+    "email_font_size":    11,
+    "email_text_color":   "#000000",
 }
 
 @st.cache_resource
@@ -393,9 +396,12 @@ def _build_hisa_placeholder_html(style=None):
     return _build_simple_table(["Issuer", "Credit Rating", "Rate"], ph3, s)
 
 
-def build_email_from_template(template, gic_cad_rows, gic_usd_rows=None, style=None):
-    """Replace placeholders in template with live data."""
+def build_email_from_template(template, gic_cad_rows, gic_usd_rows=None, style=None, email_font=None, email_font_size=None, email_text_color=None):
+    """Replace placeholders in template with live data and wrap in email styles."""
     s = style or load_table_style()
+    font = email_font or "Calibri"
+    size = email_font_size or 11
+    color = email_text_color or "#000000"
 
     # Build GIC CAD table (live data)
     gic_cad_html = build_copy_html(gic_cad_rows, s)
@@ -416,8 +422,27 @@ def build_email_from_template(template, gic_cad_rows, gic_usd_rows=None, style=N
     result = result.replace("[GIC_USD_TABLE]", gic_usd_html)
     result = result.replace("[HISA_CAD]", hisa_html)
     result = result.replace("[HISA_USD]", hisa_html)
-    result = result.replace("[NOTES]", "")  # Remove notes placeholder for now
+    result = result.replace("[NOTES]", "")
 
+    # Wrap result in email styles
+    P_STYLE = (f"margin:0cm;margin-bottom:.0001pt;padding:0;mso-pagination:none;"
+               f"font-family:{font},sans-serif;font-size:{size}pt;color:{color};mso-color-alt:windowtext;")
+
+    # Convert plain text lines to styled paragraphs
+    lines = result.split("\n")
+    styled_lines = []
+    for line in lines:
+        # Skip if line contains HTML (table tags)
+        if "<" in line and ">" in line:
+            styled_lines.append(line)
+        else:
+            # Wrap plain text in paragraph with styles
+            if line.strip():
+                styled_lines.append(f"<p style='{P_STYLE}'><span style='font-family:{font},sans-serif;font-size:{size}pt;color:{color};mso-color-alt:windowtext;'>{line}</span></p>")
+            else:
+                styled_lines.append(f"<p style='{P_STYLE}'>&nbsp;</p>")
+
+    result = "\n".join(styled_lines)
     return result
 
 
@@ -2050,8 +2075,21 @@ if st.session_state.get("admin_authenticated"):
     st.markdown("#### Full Morning Email Template")
     st.caption(
         "Customize the email format. Use placeholders: [GIC_CAD_TABLE], [GIC_USD_TABLE], [HISA_CAD], [HISA_USD], [NOTES]. "
-        "When you click 'Generate Full Email', these are replaced with live data."
+        "When you click 'Generate Full Email', these are replaced with live data. All tables use the same style from Table Format below."
     )
+
+    # Email font and formatting options
+    st.markdown("**Email text formatting:**")
+    ef_col1, ef_col2, ef_col3 = st.columns(3)
+    with ef_col1:
+        opts = FONT_OPTIONS
+        val = _s.get("email_font", "Calibri")
+        _email_font = st.selectbox("Font", opts, index=opts.index(val) if val in opts else 0, key="email_font_sel")
+    with ef_col2:
+        _email_size = st.number_input("Font size (pt)", 8, 18, _s.get("email_font_size", 11), step=1, key="email_size_inp")
+    with ef_col3:
+        _email_color = st.color_picker("Text color", _s.get("email_text_color", "#000000"), key="email_color_pick")
+
     _cur_template = _s.get("email_template", _DEFAULT_EMAIL_TEMPLATE)
     _new_template = st.text_area(
         "Email template",
@@ -2060,14 +2098,20 @@ if st.session_state.get("admin_authenticated"):
         key="admin_email_template",
         placeholder="Hi All,\n\n[NOTES]\n\nHISA CAD:\n[HISA_CAD]\n\nGIC CAD:\n[GIC_CAD_TABLE]\n\nThanks,"
     )
-    if st.button("Save Email Template", key="save_email_template"):
+    if st.button("Save Email Template & Format", key="save_email_template"):
         _s["email_template"] = _new_template.strip() if _new_template.strip() else _DEFAULT_EMAIL_TEMPLATE
+        _s["email_font"] = _email_font
+        _s["email_font_size"] = _email_size
+        _s["email_text_color"] = _email_color
         _save_app_settings()
-        st.success("Email template saved.")
+        st.success("Email template and formatting saved.")
     if st.button("Reset to Default", key="reset_email_template"):
         _s["email_template"] = _DEFAULT_EMAIL_TEMPLATE
+        _s["email_font"] = "Calibri"
+        _s["email_font_size"] = 11
+        _s["email_text_color"] = "#000000"
         _save_app_settings()
-        st.success("Email template reset to default.")
+        st.success("Email template and formatting reset to default.")
 
     st.markdown("---")
     st.markdown("#### Feature Visibility")
@@ -2932,9 +2976,21 @@ with tab2:
                     gic_usd_special = get_special_rate_rows_usd()
                     gic_usd = sort_output(gic_usd_base + gic_usd_special) if gic_usd_base or gic_usd_special else None
 
-                # Get template from admin settings and substitute
-                template = _app_settings_store().get("email_template", _DEFAULT_EMAIL_TEMPLATE)
-                st.session_state.full_email_html = build_email_from_template(template, gic_cad, gic_usd)
+                # Get template and styles from admin settings and substitute
+                settings = _app_settings_store()
+                template = settings.get("email_template", _DEFAULT_EMAIL_TEMPLATE)
+                email_font = settings.get("email_font", "Calibri")
+                email_font_size = settings.get("email_font_size", 11)
+                email_text_color = settings.get("email_text_color", "#000000")
+                table_style = load_table_style()
+
+                st.session_state.full_email_html = build_email_from_template(
+                    template, gic_cad, gic_usd,
+                    style=table_style,
+                    email_font=email_font,
+                    email_font_size=email_font_size,
+                    email_text_color=email_text_color
+                )
                 log_event("rate_sheet")
         except Exception as e:
             st.error(f"Error generating email: {str(e)}")
