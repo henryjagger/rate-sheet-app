@@ -2903,38 +2903,41 @@ with tab2:
     st.caption("Auto-generates email with GIC CAD (live) + GIC USD (live) + HISA placeholders.")
 
     if st.button("Generate Full Email"):
-        has_cad_data = master_row_count() > 0 or len(get_special_rate_rows()) > 0
-        if not has_cad_data:
-            st.error("No CAD GIC data entered — add master rates in the Master Data tab first.")
-        else:
-            # Build GIC CAD data (live)
-            base_cad   = generate_report(get_master_file(), lookup) if master_row_count() > 0 else []
-            gic_cad    = sort_output(base_cad + get_special_rate_rows())
+        try:
+            has_cad_data = master_row_count() > 0 or len(get_special_rate_rows()) > 0
+            if not has_cad_data:
+                st.error("No CAD GIC data entered — add master rates in the Master Data tab first.")
+            else:
+                # Build GIC CAD data (live)
+                base_cad   = generate_report(get_master_file(), lookup) if master_row_count() > 0 else []
+                gic_cad    = sort_output(base_cad + get_special_rate_rows())
 
-            # Build GIC USD data (live)
-            n_usd = int(st.session_state.master_grid_usd["Issuer"].astype(str).str.strip().ne("").sum())
-            gic_usd = None
-            if n_usd > 0:
-                df_usd = st.session_state.master_grid_usd.copy()
-                df_usd = df_usd[df_usd["Issuer"].astype(str).str.strip().ne("")]
-                gic_usd_base = []
-                for _, row in df_usd.iterrows():
-                    issuer = row["Issuer"].strip()
-                    for term in MASTER_GRID_COLS_USD[1:]:
-                        if term in ["Available", "As of date for Rates", "DBRS", "S&P"]:
-                            continue
-                        rate_str = str(row.get(term, "")).strip()
-                        if rate_str:
-                            rate = parse_rate(rate_str)
-                            if rate >= 0.01:
-                                gic_usd_base.append([issuer, "", term, rate])
-                gic_usd_special = get_special_rate_rows_usd()
-                gic_usd = sort_output(gic_usd_base + gic_usd_special) if gic_usd_base or gic_usd_special else None
+                # Build GIC USD data (live)
+                n_usd = int(st.session_state.master_grid_usd["Issuer"].astype(str).str.strip().ne("").sum())
+                gic_usd = None
+                if n_usd > 0:
+                    df_usd = st.session_state.master_grid_usd.copy()
+                    df_usd = df_usd[df_usd["Issuer"].astype(str).str.strip().ne("")]
+                    gic_usd_base = []
+                    for _, row in df_usd.iterrows():
+                        issuer = row["Issuer"].strip()
+                        for term in MASTER_GRID_COLS_USD[1:]:
+                            if term in ["Available", "As of date for Rates", "DBRS", "S&P"]:
+                                continue
+                            rate_str = str(row.get(term, "")).strip()
+                            if rate_str:
+                                rate = parse_rate(rate_str)
+                                if rate >= 0.01:
+                                    gic_usd_base.append([issuer, "", term, rate])
+                    gic_usd_special = get_special_rate_rows_usd()
+                    gic_usd = sort_output(gic_usd_base + gic_usd_special) if gic_usd_base or gic_usd_special else None
 
-            # Get template from admin settings and substitute
-            template = _app_settings_store().get("email_template", _DEFAULT_EMAIL_TEMPLATE)
-            st.session_state.full_email_html = build_email_from_template(template, gic_cad, gic_usd)
-            log_event("rate_sheet")
+                # Get template from admin settings and substitute
+                template = _app_settings_store().get("email_template", _DEFAULT_EMAIL_TEMPLATE)
+                st.session_state.full_email_html = build_email_from_template(template, gic_cad, gic_usd)
+                log_event("rate_sheet")
+        except Exception as e:
+            st.error(f"Error generating email: {str(e)}")
 
     if st.session_state.get("full_email_html"):
         _copy_button_component(st.session_state.full_email_html, "Copy Full Email")
