@@ -367,7 +367,7 @@ def _build_simple_table(headers, rows, style=None):
     return html
 
 
-def build_full_email_html(gic_cad_rows, style=None):
+def build_full_email_html(gic_cad_rows, gic_usd_rows=None, hisa_cad_rows=None, hisa_usd_rows=None, notes="", style=None):
     """Full morning email: greeting, notes, four sections, sign-off."""
     s    = style or load_table_style()
     font = s.get("body_font", "Calibri")
@@ -388,27 +388,36 @@ def build_full_email_html(gic_cad_rows, style=None):
     def spacer():
         return f"<p style='{P}'>&nbsp;</p>"
 
-    ph3 = [["[Institution]", "[Rating]", "[0.00%]"]] * 3
+    # Default placeholders
+    hisa_cad = hisa_cad_rows if hisa_cad_rows else [["[Institution]", "[Rating]", "[0.00%]"]] * 3
+    hisa_usd = hisa_usd_rows if hisa_usd_rows else [["[Institution]", "[Rating]", "[0.00%]"]] * 3
+    gic_usd  = gic_usd_rows if gic_usd_rows else [["[Institution]", "[Term]", "[0.00%]"]] * 3
+
+    # Notes: replace asterisks with actual notes if provided
+    notes_html = ""
+    if notes.strip():
+        for line in notes.strip().split("\n"):
+            if line.strip():
+                notes_html += para(line.strip())
+    else:
+        notes_html = para("*") + para("*") + para("*")
 
     return "".join([
         para("Hi All,"),
         spacer(),
-        para("*"),
-        para("*"),
-        para("*"),
+        notes_html,
         spacer(),
         heading("High-Interest Savings Account (CAD)"),
-        _build_simple_table(["Issuer", "Credit Rating", "Rate"], ph3, s),
+        _build_simple_table(["Issuer", "Credit Rating", "Rate"], hisa_cad, s),
         spacer(),
         heading("High-Interest Savings Account (USD)"),
-        _build_simple_table(["Issuer", "Credit Rating", "Rate"], ph3, s),
+        _build_simple_table(["Issuer", "Credit Rating", "Rate"], hisa_usd, s),
         spacer(),
         heading("Guaranteed Investment Certificates (CAD)"),
         build_copy_html(gic_cad_rows, s),
         spacer(),
         heading("Guaranteed Investment Certificates (USD)"),
-        _build_simple_table(["Issuer", "Term", "Rate"],
-                            [["[Institution]", "[Term]", "[0.00%]"]] * 3, s),
+        _build_simple_table(["Issuer", "Term", "Rate"], gic_usd, s),
         spacer(),
         para("Thanks,"),
     ])
@@ -2816,18 +2825,66 @@ with tab2:
     st.subheader("Full Morning Email")
     st.caption(
         "Generates the complete email ready to paste into Outlook. "
-        "GIC CAD uses live data. HISA CAD, HISA USD, and GIC USD have "
-        "placeholder rows — edit those directly in Outlook after pasting."
+        "GIC CAD uses live data. Fill in notes, HISA rates, and other sections below."
     )
+
+    # ── Email content inputs ──────────────────────────────────────────────────
+    email_notes = st.text_area(
+        "Notes (leave blank for placeholders)",
+        value="",
+        placeholder="Type your message here (each line becomes a paragraph)\n\nExample:\nMarkets are strong this week\nCD ladder opportunity available",
+        height=80,
+        key="email_notes"
+    )
+
+    st.caption("**HISA CAD rows** (edit Institution, Rating, Rate):")
+    hisa_cad_col1, hisa_cad_col2, hisa_cad_col3 = st.columns(3)
+    with hisa_cad_col1:
+        hisa_cad_i1 = st.text_input("Institution", value="[Institution]", key="hisa_cad_i1")
+    with hisa_cad_col2:
+        hisa_cad_r1 = st.text_input("Rating", value="[Rating]", key="hisa_cad_r1")
+    with hisa_cad_col3:
+        hisa_cad_rat1 = st.text_input("Rate", value="[0.00%]", key="hisa_cad_rat1")
+
+    st.caption("**HISA USD rows** (edit Institution, Rating, Rate):")
+    hisa_usd_col1, hisa_usd_col2, hisa_usd_col3 = st.columns(3)
+    with hisa_usd_col1:
+        hisa_usd_i1 = st.text_input("Institution", value="[Institution]", key="hisa_usd_i1")
+    with hisa_usd_col2:
+        hisa_usd_r1 = st.text_input("Rating", value="[Rating]", key="hisa_usd_r1")
+    with hisa_usd_col3:
+        hisa_usd_rat1 = st.text_input("Rate", value="[0.00%]", key="hisa_usd_rat1")
+
+    st.caption("**GIC USD rows** (edit Institution, Term, Rate):")
+    gic_usd_col1, gic_usd_col2, gic_usd_col3 = st.columns(3)
+    with gic_usd_col1:
+        gic_usd_i1 = st.text_input("Institution", value="[Institution]", key="gic_usd_i1")
+    with gic_usd_col2:
+        gic_usd_t1 = st.text_input("Term", value="[Term]", key="gic_usd_t1")
+    with gic_usd_col3:
+        gic_usd_rat1 = st.text_input("Rate", value="[0.00%]", key="gic_usd_rat1")
+
     if st.button("Generate Full Email"):
         has_master  = master_row_count() > 0
         has_special = len(get_special_rate_rows()) > 0
         if not has_master and not has_special:
-            st.error("No data entered — add master rates in the Master Data tab first.")
+            st.error("No CAD GIC data entered — add master rates in the Master Data tab first.")
         else:
             base   = generate_report(get_master_file(), lookup) if master_row_count() > 0 else []
-            output = sort_output(base + get_special_rate_rows())
-            st.session_state.full_email_html = build_full_email_html(output)
+            gic_cad_output = sort_output(base + get_special_rate_rows())
+
+            # Build HISA/GIC USD from inputs
+            hisa_cad_data = [[hisa_cad_i1, hisa_cad_r1, hisa_cad_rat1]] * 3
+            hisa_usd_data = [[hisa_usd_i1, hisa_usd_r1, hisa_usd_rat1]] * 3
+            gic_usd_data  = [[gic_usd_i1, gic_usd_t1, gic_usd_rat1]] * 3
+
+            st.session_state.full_email_html = build_full_email_html(
+                gic_cad_output,
+                gic_usd_rows=gic_usd_data,
+                hisa_cad_rows=hisa_cad_data,
+                hisa_usd_rows=hisa_usd_data,
+                notes=email_notes
+            )
             log_event("rate_sheet")
     if st.session_state.get("full_email_html"):
         _copy_button_component(st.session_state.full_email_html, "Copy Full Email")
