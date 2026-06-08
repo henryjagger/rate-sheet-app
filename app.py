@@ -161,6 +161,33 @@ def _style_preview_html(s):
     )
 
 
+def format_usd_term(term):
+    """Format USD term names: 30 → 30 days fixed, 1 → 1 year fixed, etc."""
+    term = str(term).strip()
+    if term == "30":
+        return "30 days fixed"
+    elif term == "60":
+        return "60 days fixed"
+    elif term == "90":
+        return "90 days fixed"
+    elif term == "120":
+        return "120 days fixed"
+    elif term == "180":
+        return "180 days fixed"
+    elif term == "270":
+        return "270 days fixed"
+    elif term == "1":
+        return "1 year fixed"
+    elif term == "18 months":
+        return "18 months fixed"
+    elif term == "2":
+        return "2 years fixed"
+    elif term.startswith("Cashable after"):
+        # "Cashable after 30" → "Cashable after 30 days"
+        return term + " days" if "days" not in term else term
+    return term
+
+
 def build_copy_html(rows, style=None):
     """Outlook-compatible HTML table with exact sizing and reliable colours."""
     s      = style or load_table_style()
@@ -229,7 +256,7 @@ def build_copy_html(rows, style=None):
         return (
             f"<p align='center' style='{_P_BASE}color:{h_txt};'>"
             f"<span style='color:{h_txt};mso-color-alt:windowtext;'>"
-            f"<font face='{h_fnt}' color='{h_txt}'>{b_o}{content}{b_c}</font>"
+            f"<font face='{h_fnt}' color='{h_txt}'><u>{b_o}{content}{b_c}</u></font>"
             f"</span></p>"
         )
 
@@ -389,6 +416,148 @@ def _build_simple_table(headers, rows, style=None):
     return html
 
 
+def build_usd_gic_html(rows, style=None):
+    """USD GIC table: Issuer, Term (formatted), Rate — no credit rating column."""
+    s      = style or load_table_style()
+    bw     = s["border_width"]
+    pad    = s["cell_padding"]
+    h_bg   = s["header_bg"]
+    h_txt  = s["header_text"]
+    h_fnt  = s["header_font"]
+    h_sz   = s["header_size"]
+    h_bold = s["header_bold"]
+    b_fnt  = s["body_font"]
+    b_sz   = s["body_size"]
+    b_txt  = s["body_text"]
+    b_bg   = s["body_bg"]
+    alt_bg = s["alt_row_bg"]
+    r_col  = s["rate_color"]
+    bdr_c  = s["border_color"]
+
+    ROW_H_PT = "15.87pt"
+    ROW_H_PX = "21"
+    W_TERM = "208"   # 5.5 cm
+    W_RATE = "132"   # 3.5 cm
+
+    bdr_body = f"{bw}px solid {bdr_c}"
+    bdr_hdr  = f"{bw}px solid {h_bg}"
+
+    def row_bg(ri):
+        return alt_bg if ri % 2 == 1 else b_bg
+
+    def _span(text, color):
+        return (
+            f"<span style='color:{color};mso-color-alt:windowtext;'>"
+            f"<font face='{b_fnt}' color='{color}'>{text}</font>"
+            f"</span>"
+        )
+
+    _P_BASE = (
+        "margin:0cm;margin-bottom:.0001pt;padding:0;"
+        "mso-pagination:none;mso-line-height-rule:exactly;"
+        "text-align:center;"
+    )
+
+    def _p(content, color):
+        return (
+            f"<p align='center' style='{_P_BASE}color:{color};'>"
+            + _span(content, color) +
+            "</p>"
+        )
+
+    def _p_hdr(content):
+        b_o = "<b>" if h_bold else ""
+        b_c = "</b>" if h_bold else ""
+        return (
+            f"<p align='center' style='{_P_BASE}color:{h_txt};'>"
+            f"<span style='color:{h_txt};mso-color-alt:windowtext;'>"
+            f"<font face='{h_fnt}' color='{h_txt}'><u>{b_o}{content}{b_c}</u></font>"
+            f"</span></p>"
+        )
+
+    def th_css(width=""):
+        w = f"width:{width}px;" if width else ""
+        return (
+            f"background-color:{h_bg};color:{h_txt};"
+            f"font-family:{h_fnt},sans-serif;font-size:{h_sz}pt;"
+            f"font-weight:{'bold' if h_bold else 'normal'};"
+            f"border:{bdr_hdr};padding:2px {pad*2}px;"
+            f"text-align:center;vertical-align:middle;"
+            f"height:{ROW_H_PT};mso-line-height-rule:exactly;{w}"
+        )
+
+    def td_css(ri, color, width="", nowrap=False):
+        bg = row_bg(ri)
+        w  = f"width:{width}px;" if width else ""
+        nw = "white-space:nowrap;" if nowrap else ""
+        return (
+            f"background-color:{bg};color:{color};"
+            f"font-family:{b_fnt},sans-serif;font-size:{b_sz}pt;"
+            f"border:{bdr_body};padding:2px {pad*2}px;"
+            f"text-align:center;vertical-align:middle;"
+            f"height:{ROW_H_PT};mso-line-height-rule:exactly;{w}{nw}"
+        )
+
+    # Term rowspans
+    rowspans, i = [], 0
+    while i < len(rows):
+        span = 1
+        while i + span < len(rows) and rows[i + span][2] == rows[i][2]:
+            span += 1
+        rowspans.extend([span] + [0] * (span - 1))
+        i += span
+
+    def th_cell(label, width=""):
+        w_attr = f" width='{width}'" if width else ""
+        return (
+            f"<th{w_attr} bgcolor='{h_bg}' align='center' height='{ROW_H_PX}' "
+            f"style='{th_css(width)}'>"
+            + _p_hdr(label) + "</th>"
+        )
+
+    html = (
+        "<table border='0' cellpadding='0' cellspacing='0' "
+        "style='border-collapse:collapse;'>"
+        "<thead>"
+        f"<tr height='{ROW_H_PX}'>"
+        + th_cell("Issuer")
+        + th_cell("Term", W_TERM)
+        + th_cell("Rate", W_RATE)
+        + "</tr></thead><tbody>"
+    )
+
+    for ri, (issuer, _, term, rate) in enumerate(rows):
+        span     = rowspans[ri]
+        term_fmt = format_usd_term(term)
+        rate_str = f"{rate * 100:.2f}%"
+        bg       = row_bg(ri)
+
+        html += f"<tr height='{ROW_H_PX}'>"
+        html += (
+            f"<td bgcolor='{bg}' align='center' valign='middle' "
+            f"style='{td_css(ri, b_txt, nowrap=True)}'>"
+            + _p(issuer, b_txt) + "</td>"
+        )
+        # Term (rowspan)
+        if span > 0:
+            rs = f" rowspan='{span}'" if span > 1 else ""
+            html += (
+                f"<td{rs} width='{W_TERM}' bgcolor='{bg}' align='center' valign='middle' "
+                f"style='{td_css(ri, b_txt, W_TERM)}'>"
+                + _p(term_fmt, b_txt) + "</td>"
+            )
+        # Rate
+        html += (
+            f"<td width='{W_RATE}' bgcolor='{bg}' align='center' valign='middle' "
+            f"style='{td_css(ri, r_col, W_RATE)}'>"
+            + _p(rate_str, r_col) + "</td>"
+        )
+        html += "</tr>"
+
+    html += "</tbody></table>"
+    return html
+
+
 def _build_hisa_placeholder_html(style=None):
     """Build placeholder HISA tables."""
     s = style or load_table_style()
@@ -403,14 +572,15 @@ def build_email_from_template(template, gic_cad_rows, gic_usd_rows=None, style=N
     size = email_font_size or 11
     color = email_text_color or "#000000"
 
-    # Build GIC CAD table (live data)
+    # Build GIC CAD table (live data) — includes credit ratings
     gic_cad_html = build_copy_html(gic_cad_rows, s)
 
-    # Build GIC USD table (live data or placeholder)
+    # Build GIC USD table (live data or placeholder) — no credit ratings, formatted terms
     if gic_usd_rows:
-        gic_usd_html = build_copy_html(gic_usd_rows, s)
+        gic_usd_html = build_usd_gic_html(gic_usd_rows, s)
     else:
-        ph3 = [["[Institution]", "[Term]", "[0.00%]"]] * 3
+        # Placeholder: 3-column table (Issuer, Term, Rate)
+        ph3 = [["[Institution]", "", "[0.00%]"]] * 3
         gic_usd_html = _build_simple_table(["Issuer", "Term", "Rate"], ph3, s)
 
     # Build HISA placeholders
