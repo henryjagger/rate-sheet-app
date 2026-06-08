@@ -3,9 +3,11 @@ import uuid
 from io import BytesIO
 from flask import (
     Flask, render_template, request, redirect,
-    url_for, session, send_file
+    url_for, session, send_file, jsonify
 )
 import pandas as pd
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from processing import (
     TERM_COLUMNS, load_passwords, save_passwords,
     load_stats, log_event, load_backend_lookup, clear_lookup_cache,
@@ -13,6 +15,17 @@ from processing import (
     generate_report, create_excel, linkify_insurance_html,
     LOOKUP_PATH,
 )
+
+# Import API utilities
+from api import (
+    generate_report_from_data,
+    generate_report_usd,
+    sort_output,
+    build_html_table,
+    is_credit_or_guarantee,
+)
+
+_VAN = ZoneInfo("America/Vancouver")
 
 app = Flask(
     __name__,
@@ -340,6 +353,121 @@ def upload_lookup():
         f.save(LOOKUP_PATH)
         clear_lookup_cache()
     return redirect(url_for("admin") + "?msg=lookup_saved")
+
+
+# ── Public API Endpoints (for Power Automate) ──────────────────────────────────
+
+@app.route("/api/health", methods=["GET"])
+def api_health():
+    """Health check endpoint."""
+    return jsonify({
+        "status": "healthy",
+        "timestamp": datetime.now(_VAN).isoformat()
+    })
+
+
+@app.route("/api/generate-rate-sheet", methods=["POST"])
+def api_generate_rate_sheet():
+    """
+    Generate a rate sheet from master data.
+
+    POST /api/generate-rate-sheet
+    Content-Type: application/json
+
+    {
+        "currency": "CAD",
+        "output_type": "all_in",
+        "data": {
+            "currency": "CAD",
+            "institutions": [...]
+        }
+    }
+    """
+    try:
+        data = request.get_json()
+
+        # Validate required fields
+        if not data:
+            return jsonify({
+                "success": False,
+                "error": "No JSON data provided",
+                "generated_at": datetime.now(_VAN).isoformat()
+            }), 400
+
+        currency = data.get("currency", "CAD")
+        output_type = data.get("output_type", "all_in")
+        master_data = data.get("data", {})
+        institutions = master_data.get("institutions", [])
+
+        # Validate inputs
+        if currency not in ["CAD", "USD"]:
+            return jsonify({
+                "success": False,
+                "error": "Currency must be CAD or USD",
+                "generated_at": datetime.now(_VAN).isoformat()
+            }), 400
+
+        if output_type not in ["all_in", "credit_only"]:
+            return jsonify({
+                "success": False,
+                "error": "output_type must be: all_in or credit_only",
+                "generated_at": datetime.now(_VAN).isoformat()
+            }), 400
+
+        if output_type == "credit_only" and currency == "USD":
+            return jsonify({
+                "success": False,
+                "error": "credit_only is only supported for CAD",
+                "generated_at": datetime.now(_VAN).isoformat()
+            }), 400
+
+        if not institutions:
+            return jsonify({
+                "success": False,
+                "error": "No institutions provided",
+                "generated_at": datetime.now(_VAN).isoformat()
+            }), 400
+
+        # Generate report
+        if currency == "CAD":
+            base = generate_report_from_data(institutions, currency="CAD", fi_only=False)
+        else:
+            base = generate_report_usd(institutions)
+
+        # Handle special rates if provided
+        special = master_data.get("special_rates", [])
+        special_formatted = [
+            [s.get("issuer", ""), s.get("rating", ""), s.get("term", ""), s.get("rate", 0)]
+            for s in special
+        ] if isinstance(special, list) else []
+
+        # Combine and sort
+        output = sort_output(base + special_formatted)
+
+        # Apply filters if credit_only
+        if output_type == "credit_only":
+            output = [r for r in output if is_credit_or_guarantee(r[1])]
+
+        # Build HTML
+        html = build_html_table(output)
+
+        # Log the event
+        log_event("api_rate_sheet")
+
+        return jsonify({
+            "success": True,
+            "message": f"Generated {output_type} rate sheet ({currency})",
+            "html": html,
+            "error": None,
+            "generated_at": datetime.now(_VAN).isoformat()
+        })
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "generated_at": datetime.now(_VAN).isoformat()
+        }), 500
 
 
 if __name__ == "__main__":
