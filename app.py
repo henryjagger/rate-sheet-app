@@ -19,11 +19,30 @@ HISTORY_PATH       = os.path.join(os.path.expanduser("~"), ".ratesheet", "specia
 TABLE_STYLE_PATH   = os.path.join(os.path.expanduser("~"), ".ratesheet", "table_style.json")
 APP_SETTINGS_PATH  = os.path.join(os.path.expanduser("~"), ".ratesheet", "app_settings.json")
 
+_DEFAULT_EMAIL_TEMPLATE = """Hi All,
+
+[NOTES]
+
+High-Interest Savings Account (CAD)
+[HISA_CAD]
+
+High-Interest Savings Account (USD)
+[HISA_USD]
+
+Guaranteed Investment Certificates (CAD)
+[GIC_CAD_TABLE]
+
+Guaranteed Investment Certificates (USD)
+[GIC_USD_TABLE]
+
+Thanks,"""
+
 _DEFAULT_APP_SETTINGS = {
     "show_master_data":   True,
     "show_custom_query":  True,
     "show_rate_sheet":    True,
     "announcement":       "",
+    "email_template":     _DEFAULT_EMAIL_TEMPLATE,
 }
 
 @st.cache_resource
@@ -365,6 +384,41 @@ def _build_simple_table(headers, rows, style=None):
         html += "</tr>"
     html += "</tbody></table>"
     return html
+
+
+def _build_hisa_placeholder_html(style=None):
+    """Build placeholder HISA tables."""
+    s = style or load_table_style()
+    ph3 = [["[Institution]", "[Rating]", "[0.00%]"]] * 3
+    return _build_simple_table(["Issuer", "Credit Rating", "Rate"], ph3, s)
+
+
+def build_email_from_template(template, gic_cad_rows, gic_usd_rows=None, style=None):
+    """Replace placeholders in template with live data."""
+    s = style or load_table_style()
+
+    # Build GIC CAD table (live data)
+    gic_cad_html = build_copy_html(gic_cad_rows, s)
+
+    # Build GIC USD table (live data or placeholder)
+    if gic_usd_rows:
+        gic_usd_html = build_copy_html(gic_usd_rows, s)
+    else:
+        ph3 = [["[Institution]", "[Term]", "[0.00%]"]] * 3
+        gic_usd_html = _build_simple_table(["Issuer", "Term", "Rate"], ph3, s)
+
+    # Build HISA placeholders
+    hisa_html = _build_hisa_placeholder_html(s)
+
+    # Replace placeholders in template
+    result = template
+    result = result.replace("[GIC_CAD_TABLE]", gic_cad_html)
+    result = result.replace("[GIC_USD_TABLE]", gic_usd_html)
+    result = result.replace("[HISA_CAD]", hisa_html)
+    result = result.replace("[HISA_USD]", hisa_html)
+    result = result.replace("[NOTES]", "")  # Remove notes placeholder for now
+
+    return result
 
 
 def build_full_email_html(gic_cad_rows, gic_usd_rows=None, hisa_cad_rows=None, hisa_usd_rows=None, notes="", style=None):
@@ -1992,6 +2046,29 @@ if st.session_state.get("admin_authenticated"):
                     _save_disambiguate(); st.rerun()
 
     st.markdown("---")
+    st.markdown("#### Full Morning Email Template")
+    st.caption(
+        "Customize the email format. Use placeholders: [GIC_CAD_TABLE], [GIC_USD_TABLE], [HISA_CAD], [HISA_USD], [NOTES]. "
+        "When you click 'Generate Full Email', these are replaced with live data."
+    )
+    _cur_template = _s.get("email_template", _DEFAULT_EMAIL_TEMPLATE)
+    _new_template = st.text_area(
+        "Email template",
+        value=_cur_template,
+        height=150,
+        key="admin_email_template",
+        placeholder="Hi All,\n\n[NOTES]\n\nHISA CAD:\n[HISA_CAD]\n\nGIC CAD:\n[GIC_CAD_TABLE]\n\nThanks,"
+    )
+    if st.button("Save Email Template", key="save_email_template"):
+        _s["email_template"] = _new_template.strip() if _new_template.strip() else _DEFAULT_EMAIL_TEMPLATE
+        _save_app_settings()
+        st.success("Email template saved.")
+    if st.button("Reset to Default", key="reset_email_template"):
+        _s["email_template"] = _DEFAULT_EMAIL_TEMPLATE
+        _save_app_settings()
+        st.success("Email template reset to default.")
+
+    st.markdown("---")
     st.markdown("#### Feature Visibility")
     st.caption("Hide tabs from regular users. Admin access is controlled by the admin password.")
     _s = _app_settings_store()
@@ -2823,69 +2900,42 @@ with tab2:
 
     # ── Full Morning Email ────────────────────────────────────────────────────
     st.subheader("Full Morning Email")
-    st.caption(
-        "Generates the complete email ready to paste into Outlook. "
-        "GIC CAD uses live data. Fill in notes, HISA rates, and other sections below."
-    )
-
-    # ── Email content inputs ──────────────────────────────────────────────────
-    email_notes = st.text_area(
-        "Notes (leave blank for placeholders)",
-        value="",
-        placeholder="Type your message here (each line becomes a paragraph)\n\nExample:\nMarkets are strong this week\nCD ladder opportunity available",
-        height=80,
-        key="email_notes"
-    )
-
-    st.caption("**HISA CAD rows** (edit Institution, Rating, Rate):")
-    hisa_cad_col1, hisa_cad_col2, hisa_cad_col3 = st.columns(3)
-    with hisa_cad_col1:
-        hisa_cad_i1 = st.text_input("Institution", value="[Institution]", key="hisa_cad_i1")
-    with hisa_cad_col2:
-        hisa_cad_r1 = st.text_input("Rating", value="[Rating]", key="hisa_cad_r1")
-    with hisa_cad_col3:
-        hisa_cad_rat1 = st.text_input("Rate", value="[0.00%]", key="hisa_cad_rat1")
-
-    st.caption("**HISA USD rows** (edit Institution, Rating, Rate):")
-    hisa_usd_col1, hisa_usd_col2, hisa_usd_col3 = st.columns(3)
-    with hisa_usd_col1:
-        hisa_usd_i1 = st.text_input("Institution", value="[Institution]", key="hisa_usd_i1")
-    with hisa_usd_col2:
-        hisa_usd_r1 = st.text_input("Rating", value="[Rating]", key="hisa_usd_r1")
-    with hisa_usd_col3:
-        hisa_usd_rat1 = st.text_input("Rate", value="[0.00%]", key="hisa_usd_rat1")
-
-    st.caption("**GIC USD rows** (edit Institution, Term, Rate):")
-    gic_usd_col1, gic_usd_col2, gic_usd_col3 = st.columns(3)
-    with gic_usd_col1:
-        gic_usd_i1 = st.text_input("Institution", value="[Institution]", key="gic_usd_i1")
-    with gic_usd_col2:
-        gic_usd_t1 = st.text_input("Term", value="[Term]", key="gic_usd_t1")
-    with gic_usd_col3:
-        gic_usd_rat1 = st.text_input("Rate", value="[0.00%]", key="gic_usd_rat1")
+    st.caption("Auto-generates email with GIC CAD (live) + GIC USD (live) + HISA placeholders.")
 
     if st.button("Generate Full Email"):
-        has_master  = master_row_count() > 0
-        has_special = len(get_special_rate_rows()) > 0
-        if not has_master and not has_special:
+        has_cad_data = master_row_count() > 0 or len(get_special_rate_rows()) > 0
+        if not has_cad_data:
             st.error("No CAD GIC data entered — add master rates in the Master Data tab first.")
         else:
-            base   = generate_report(get_master_file(), lookup) if master_row_count() > 0 else []
-            gic_cad_output = sort_output(base + get_special_rate_rows())
+            # Build GIC CAD data (live)
+            base_cad   = generate_report(get_master_file(), lookup) if master_row_count() > 0 else []
+            gic_cad    = sort_output(base_cad + get_special_rate_rows())
 
-            # Build HISA/GIC USD from inputs
-            hisa_cad_data = [[hisa_cad_i1, hisa_cad_r1, hisa_cad_rat1]] * 3
-            hisa_usd_data = [[hisa_usd_i1, hisa_usd_r1, hisa_usd_rat1]] * 3
-            gic_usd_data  = [[gic_usd_i1, gic_usd_t1, gic_usd_rat1]] * 3
+            # Build GIC USD data (live)
+            n_usd = int(st.session_state.master_grid_usd["Issuer"].astype(str).str.strip().ne("").sum())
+            gic_usd = None
+            if n_usd > 0:
+                df_usd = st.session_state.master_grid_usd.copy()
+                df_usd = df_usd[df_usd["Issuer"].astype(str).str.strip().ne("")]
+                gic_usd_base = []
+                for _, row in df_usd.iterrows():
+                    issuer = row["Issuer"].strip()
+                    for term in MASTER_GRID_COLS_USD[1:]:
+                        if term in ["Available", "As of date for Rates", "DBRS", "S&P"]:
+                            continue
+                        rate_str = str(row.get(term, "")).strip()
+                        if rate_str:
+                            rate = parse_rate(rate_str)
+                            if rate >= 0.01:
+                                gic_usd_base.append([issuer, "", term, rate])
+                gic_usd_special = get_special_rate_rows_usd()
+                gic_usd = sort_output(gic_usd_base + gic_usd_special) if gic_usd_base or gic_usd_special else None
 
-            st.session_state.full_email_html = build_full_email_html(
-                gic_cad_output,
-                gic_usd_rows=gic_usd_data,
-                hisa_cad_rows=hisa_cad_data,
-                hisa_usd_rows=hisa_usd_data,
-                notes=email_notes
-            )
+            # Get template from admin settings and substitute
+            template = _app_settings_store().get("email_template", _DEFAULT_EMAIL_TEMPLATE)
+            st.session_state.full_email_html = build_email_from_template(template, gic_cad, gic_usd)
             log_event("rate_sheet")
+
     if st.session_state.get("full_email_html"):
         _copy_button_component(st.session_state.full_email_html, "Copy Full Email")
 
