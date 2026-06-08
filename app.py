@@ -1796,6 +1796,34 @@ def get_special_rate_rows(selected_terms=None):
             rows.append([issuer, rating, term, rate])
     return rows
 
+def get_special_rate_rows_usd(selected_terms=None):
+    rows = []
+    for entry in st.session_state.get("special_rates_v2_usd", []):
+        issuer = entry.get("issuer", "").strip()
+        dbrs   = entry.get("dbrs", "").strip()
+        sp     = entry.get("sp", "").strip()
+        if not issuer:
+            continue
+        # Combine DBRS and S&P for display
+        rating = ""
+        if dbrs and sp:
+            rating = f"{dbrs} – {sp}"
+        elif dbrs:
+            rating = dbrs
+        elif sp:
+            rating = sp
+        for te in entry.get("entries", []):
+            term = te.get("term", "").strip()
+            if not term:
+                continue
+            rate = parse_rate(str(te.get("rate", "")))
+            if rate < 0.01:
+                continue
+            if selected_terms is not None and term not in selected_terms:
+                continue
+            rows.append([issuer, rating, term, rate])
+    return rows
+
 @st.cache_resource
 def _shared_rate_data():
     return {"master_grid": None, "master_cols": None,
@@ -2468,6 +2496,13 @@ with tab1:
     if not _app_settings_store().get("show_custom_query", True):
         st.warning("🔒 **Custom Query** has been disabled by an administrator.")
         st.stop()
+
+    query_currency = st.radio(
+        "Currency",
+        ["CAD", "USD"],
+        horizontal=True,
+        key="query_currency"
+    )
     st.write("Filter rates by term, credit rating status, and number of results.")
 
     query_source = st.radio(
@@ -2477,11 +2512,18 @@ with tab1:
     )
 
     if query_source == "Master Data":
-        n = master_row_count()
-        if n:
-            st.info(f"{n} institutions loaded from Master Data tab.")
-        else:
-            st.warning("No data entered yet — go to the **Master Data** tab and paste your rates.")
+        if query_currency == "CAD":
+            n = master_row_count()
+            if n:
+                st.info(f"{n} institutions loaded from Master Data tab (CAD).")
+            else:
+                st.warning("No CAD data entered yet — go to the **Master Data** tab and paste your rates.")
+        else:  # USD
+            n_usd = int(st.session_state.master_grid_usd["Issuer"].astype(str).str.strip().ne("").sum())
+            if n_usd:
+                st.info(f"{n_usd} institutions loaded from Master Data tab (USD).")
+            else:
+                st.warning("No USD data entered yet — go to the **Master Data** tab and enter USD rates.")
     else:
         formatted_sheet_file = st.file_uploader(
             "Upload Formatted Rate Sheet",
@@ -2489,7 +2531,14 @@ with tab1:
             key="formatted_sheet_uploader"
         )
 
-    term_options = [t[0] for t in TERM_COLUMNS]
+    # Term options depend on currency
+    if query_currency == "CAD":
+        term_options = [t[0] for t in TERM_COLUMNS]
+    else:  # USD
+        usd_terms = ["Cashable after 30", "Cashable after 90", "Cashable after 180",
+                     "30", "60", "90", "120", "180", "270", "1", "18 months", "2"]
+        term_options = usd_terms
+
     selected_terms = st.multiselect(
         "Select terms",
         options=term_options,
@@ -2559,8 +2608,10 @@ with tab1:
     if st.button("Run Query"):
         if not selected_terms:
             st.warning("Please select at least one term.")
-        elif query_source == "Master Data" and master_row_count() == 0:
-            st.error("No data entered — go to the Master Data tab and paste your rates first.")
+        elif query_source == "Master Data" and query_currency == "CAD" and master_row_count() == 0:
+            st.error("No CAD data entered — go to the Master Data tab and paste your rates first.")
+        elif query_source == "Master Data" and query_currency == "USD" and int(st.session_state.master_grid_usd["Issuer"].astype(str).str.strip().ne("").sum()) == 0:
+            st.error("No USD data entered — go to the Master Data tab and enter USD rates first.")
         elif query_source == "Formatted Rate Sheet" and not formatted_sheet_file:
             st.error("Please upload a Formatted Rate Sheet.")
         else:
@@ -2569,11 +2620,32 @@ with tab1:
             if query_source == "Formatted Rate Sheet":
                 pool = query_from_sheet(formatted_sheet_file, selected_terms, _pool_n, credit_rated_only)
                 log_event("sheet_query")
-            else:
+            elif query_currency == "USD":
+                # For USD, use master_grid_usd directly
+                df_usd = st.session_state.master_grid_usd.copy()
+                df_usd = df_usd[df_usd["Issuer"].astype(str).str.strip().ne("")]
+                pool = []
+                for term in selected_terms:
+                    if term not in MASTER_GRID_COLS_USD:
+                        continue
+                    for _, row in df_usd.iterrows():
+                        issuer = row["Issuer"].strip()
+                        rating = ""  # USD rates don't have ratings column like CAD
+                        rate_str = str(row.get(term, "")).strip()
+                        if rate_str:
+                            rate = parse_rate(rate_str)
+                            if rate >= 0.01:
+                                pool.append([issuer, rating, term, rate])
+                log_event("master_query")
+            else:  # CAD
                 pool = generate_custom_query(get_master_file(), lookup, selected_terms, _pool_n, credit_rated_only)
                 log_event("master_query")
 
-            pool = pool + get_special_rate_rows(selected_terms)
+            # Add special rates (CAD or USD)
+            if query_currency == "USD":
+                pool = pool + get_special_rate_rows_usd(selected_terms)
+            else:
+                pool = pool + get_special_rate_rows(selected_terms)
             pool = apply_query_filters(
                 pool, min_rate_pct / 100, insurance_filter,
                 institution_search.strip(), exclude_cannot_source, sort_by,
@@ -2654,26 +2726,58 @@ with tab2:
     if not _app_settings_store().get("show_rate_sheet", True):
         st.warning("🔒 **Rate Sheet Generator** has been disabled by an administrator.")
         st.stop()
-    n         = master_row_count()
-    n_special = len(get_special_rate_rows())
+
+    rs_currency = st.radio(
+        "Currency",
+        ["CAD", "USD"],
+        horizontal=True,
+        key="rs_currency"
+    )
+
+    if rs_currency == "CAD":
+        n         = master_row_count()
+        n_special = len(get_special_rate_rows())
+    else:  # USD
+        n         = int(st.session_state.master_grid_usd["Issuer"].astype(str).str.strip().ne("").sum())
+        n_special = len(get_special_rate_rows_usd())
+
     has_data  = n > 0 or n_special > 0
 
     if n:
         st.info(
-            f"{n} institutions in Master Data."
+            f"{n} institutions in Master Data ({rs_currency})."
             + (f"  ·  {n_special} special rate{'s' if n_special != 1 else ''}." if n_special else "")
         )
     elif n_special:
-        st.info(f"{n_special} special rate{'s' if n_special != 1 else ''} entered.")
+        st.info(f"{n_special} special rate{'s' if n_special != 1 else ''} entered ({rs_currency}).")
     else:
-        st.warning("No data yet — go to the **Master Data** tab and paste your rates.")
+        st.warning(f"No {rs_currency} data yet — go to the **Master Data** tab and paste your rates.")
 
     def _build_and_store(key, fi_only=False, credit_only=False):
         if not has_data:
             st.error("No data entered — add master rates or special rates in the Master Data tab first.")
             return
-        base    = generate_report(get_master_file(), lookup, fi_only=fi_only) if n > 0 else []
-        special = get_special_rate_rows()
+        if rs_currency == "CAD":
+            base    = generate_report(get_master_file(), lookup, fi_only=fi_only) if n > 0 else []
+            special = get_special_rate_rows()
+        else:  # USD
+            # For USD, build from master_grid_usd
+            df_usd = st.session_state.master_grid_usd.copy()
+            df_usd = df_usd[df_usd["Issuer"].astype(str).str.strip().ne("")]
+            base = []
+            for _, row in df_usd.iterrows():
+                issuer = row["Issuer"].strip()
+                for term in MASTER_GRID_COLS_USD[1:]:  # Skip Issuer column
+                    if term in ["Available", "As of date for Rates", "DBRS", "S&P"]:
+                        continue
+                    rate_str = str(row.get(term, "")).strip()
+                    if rate_str:
+                        rate = parse_rate(rate_str)
+                        if rate >= 0.01:
+                            # USD rows have no rating (DBRS/S&P are separate)
+                            base.append([issuer, "", term, rate])
+            special = get_special_rate_rows_usd()
+
         if credit_only:
             base    = [r for r in base    if is_credit_or_guarantee(r[1])]
             special = [r for r in special if is_credit_or_guarantee(r[1])]
@@ -2694,16 +2798,17 @@ with tab2:
 
     st.markdown("---")
 
-    # ── 2. Credit Rated & 100% Guarantees ────────────────────────────────────
-    st.subheader("Credit Rated & 100% Guarantees Only")
-    st.caption(
-        "Only institutions with a formal credit rating (R-1, R-2, AA, BBB …) "
-        "or a 100% guarantee. All unrated and uninsured rows are removed."
-    )
-    if st.button("Generate — Credit Rated & 100% Guarantees"):
-        _build_and_store("rs_credit_html", credit_only=True)
-    if st.session_state.get("rs_credit_html"):
-        _copy_button_component(st.session_state.rs_credit_html, "Copy — Credit Rated & Guarantees")
+    # ── 2. Credit Rated & 100% Guarantees (CAD only) ────────────────────────
+    if rs_currency == "CAD":
+        st.subheader("Credit Rated & 100% Guarantees Only")
+        st.caption(
+            "Only institutions with a formal credit rating (R-1, R-2, AA, BBB …) "
+            "or a 100% guarantee. All unrated and uninsured rows are removed."
+        )
+        if st.button("Generate — Credit Rated & 100% Guarantees"):
+            _build_and_store("rs_credit_html", credit_only=True)
+        if st.session_state.get("rs_credit_html"):
+            _copy_button_component(st.session_state.rs_credit_html, "Copy — Credit Rated & Guarantees")
 
     st.markdown("---")
 
