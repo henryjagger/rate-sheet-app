@@ -1725,8 +1725,31 @@ MASTER_GRID_COLS = [
     "Notes",
 ]
 
+MASTER_GRID_COLS_USD = [
+    "Issuer",
+    "Available",
+    "As of date for Rates",
+    "DBRS",
+    "S&P",
+    "Cashable after 30",
+    "Cashable after 90",
+    "Cashable after 180",
+    "30",
+    "60",
+    "90",
+    "120",
+    "180",
+    "270",
+    "1",
+    "18 months",
+    "2",
+]
+
 def empty_master_df():
     return pd.DataFrame("", index=range(50), columns=MASTER_GRID_COLS)
+
+def empty_master_df_usd():
+    return pd.DataFrame("", index=range(50), columns=MASTER_GRID_COLS_USD)
 
 def master_row_count():
     return int(
@@ -1790,8 +1813,12 @@ if "query_top_n" not in st.session_state:
     st.session_state.query_top_n = 3
 if "master_grid" not in st.session_state:
     st.session_state.master_grid = empty_master_df()
+if "master_grid_usd" not in st.session_state:
+    st.session_state.master_grid_usd = empty_master_df_usd()
 if "special_rates_v2" not in st.session_state:
     st.session_state.special_rates_v2 = []
+if "special_rates_v2_usd" not in st.session_state:
+    st.session_state.special_rates_v2_usd = []
 if "pending_terms" not in st.session_state:
     st.session_state.pending_terms = []
 
@@ -2033,15 +2060,18 @@ with tab_data:
     if not _app_settings_store().get("show_master_data", True):
         st.warning("🔒 **Master Data** has been disabled by an administrator.")
         st.stop()
-    # ── Save / load shared across all sessions ──────────────────────────────
+    # ── Save / load shared across all sessions (both CAD and USD) ────────────
     shared = _shared_rate_data()
     save_col, load_col, _ = st.columns([1, 2, 5])
     with save_col:
-        if st.button("💾 Save for Team", help="Saves current master rates and special rates so any team member can load them."):
-            shared["master_grid"]     = st.session_state.master_grid.to_dict(orient="records")
-            shared["master_cols"]     = list(st.session_state.master_grid.columns)
-            shared["special_rates_v2"] = st.session_state.special_rates_v2
-            shared["saved_at"]        = datetime.now(_VAN).strftime("%b %d, %Y at %I:%M %p")
+        if st.button("💾 Save for Team", help="Saves current master rates (CAD & USD) and special rates so any team member can load them."):
+            shared["master_grid"]        = st.session_state.master_grid.to_dict(orient="records")
+            shared["master_cols"]        = list(st.session_state.master_grid.columns)
+            shared["master_grid_usd"]    = st.session_state.master_grid_usd.to_dict(orient="records")
+            shared["master_cols_usd"]    = list(st.session_state.master_grid_usd.columns)
+            shared["special_rates_v2"]   = st.session_state.special_rates_v2
+            shared["special_rates_v2_usd"] = st.session_state.special_rates_v2_usd
+            shared["saved_at"]           = datetime.now(_VAN).strftime("%b %d, %Y at %I:%M %p")
             st.success("Saved! Team members can now click 'Use Last' to load this data.")
     with load_col:
         if shared.get("saved_at"):
@@ -2049,10 +2079,15 @@ with tab_data:
                 st.session_state.master_grid     = pd.DataFrame(
                     shared["master_grid"], columns=shared["master_cols"]
                 ).astype(str).fillna("")
-                st.session_state.special_rates_v2 = shared.get("special_rates_v2") or []
+                st.session_state.master_grid_usd = pd.DataFrame(
+                    shared.get("master_grid_usd", []), columns=shared.get("master_cols_usd", MASTER_GRID_COLS_USD)
+                ).astype(str).fillna("") if shared.get("master_grid_usd") else empty_master_df_usd()
+                st.session_state.special_rates_v2     = shared.get("special_rates_v2") or []
+                st.session_state.special_rates_v2_usd = shared.get("special_rates_v2_usd") or []
                 st.rerun()
 
     st.markdown("---")
+    st.subheader("📊 Guaranteed Investment Certificates (CAD)")
     st.caption(
         "Enter your master rates below. "
         "To paste from Excel or Google Sheets: copy your data (Ctrl+C / ⌘C), "
@@ -2061,7 +2096,7 @@ with tab_data:
     )
     hdr_col, btn_col = st.columns([8, 1])
     with btn_col:
-        if st.button("Clear all"):
+        if st.button("Clear all", key="clear_cad"):
             st.session_state.master_grid = empty_master_df()
             st.rerun()
 
@@ -2212,6 +2247,138 @@ with tab_data:
                     st.write(f"• {te['term']}: {te['rate']}")
                 if st.button("🗑 Delete", key=f"del_sp_{i}"):
                     st.session_state.special_rates_v2.pop(i)
+                    st.rerun()
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    st.markdown("---")
+    st.subheader("💵 Guaranteed Investment Certificates (USD)")
+    st.markdown("---")
+    st.caption(
+        "Enter USD GIC rates below. "
+        "To paste from Excel or Google Sheets: copy your data (Ctrl+C / ⌘C), "
+        "click the first cell in the **Issuer** column, then paste (Ctrl+V / ⌘V). "
+        "Column order must match the headers shown."
+    )
+    usd_hdr_col, usd_btn_col = st.columns([8, 1])
+    with usd_btn_col:
+        if st.button("Clear all", key="clear_usd"):
+            st.session_state.master_grid_usd = empty_master_df_usd()
+            st.rerun()
+
+    usd_edited = st.data_editor(
+        st.session_state.master_grid_usd,
+        num_rows="dynamic",
+        use_container_width=True,
+        height=520,
+        column_config={
+            "Issuer":                    st.column_config.TextColumn("Issuer",           width="large"),
+            "Available":                 st.column_config.TextColumn("Available",        width="small"),
+            "As of date for Rates":      st.column_config.TextColumn("As of Date",      width="medium"),
+            "DBRS":                      st.column_config.TextColumn("DBRS",            width="medium"),
+            "S&P":                       st.column_config.TextColumn("S&P",             width="medium"),
+            "Cashable after 30":         st.column_config.TextColumn("Cash. 30",        width="medium"),
+            "Cashable after 90":         st.column_config.TextColumn("Cash. 90",        width="medium"),
+            "Cashable after 180":        st.column_config.TextColumn("Cash. 180",       width="medium"),
+            "30":                        st.column_config.TextColumn("30",              width="medium"),
+            "60":                        st.column_config.TextColumn("60",              width="medium"),
+            "90":                        st.column_config.TextColumn("90",              width="medium"),
+            "120":                       st.column_config.TextColumn("120",             width="medium"),
+            "180":                       st.column_config.TextColumn("180",             width="medium"),
+            "270":                       st.column_config.TextColumn("270",             width="medium"),
+            "1":                         st.column_config.TextColumn("1 Year",          width="medium"),
+            "18 months":                 st.column_config.TextColumn("18 Mo",           width="medium"),
+            "2":                         st.column_config.TextColumn("2 Years",         width="medium"),
+        },
+    )
+    st.session_state.master_grid_usd = usd_edited
+
+    n_usd = int(st.session_state.master_grid_usd["Issuer"].astype(str).str.strip().ne("").sum())
+    if n_usd:
+        st.caption(f"{n_usd} institution{'s' if n_usd != 1 else ''} entered (USD).")
+
+    st.markdown("---")
+    st.subheader("Special Rates (USD)")
+    st.caption("Enter the institution once, provide its DBRS and S&P ratings, then add as many terms as you need.")
+
+    # ── Add new entry form for USD ────────────────────────────────────────────
+    with st.form("add_special_rate_form_usd", clear_on_submit=False):
+        st.markdown("**Step 1 — Institution**")
+        f_issuer_usd = st.text_input("Institution name", key="f_issuer_usd",
+                                      placeholder="e.g. EQ Bank")
+
+        st.markdown("**Step 2 — Credit ratings** *(leave blank if none)*")
+        fcu1, fcu2 = st.columns(2)
+        with fcu1:
+            f_dbrs = st.text_input("DBRS rating", key="f_dbrs",
+                                   placeholder="e.g. R-1 (High)")
+        with fcu2:
+            f_sp = st.text_input("S&P rating", key="f_sp",
+                                 placeholder="e.g. A-1+")
+
+        st.markdown("**Step 3 — Add a term & rate**")
+        ftu1, ftu2, ftu3 = st.columns([3, 2, 1])
+        with ftu1:
+            usd_terms = ["Cashable after 30", "Cashable after 90", "Cashable after 180",
+                         "30", "60", "90", "120", "180", "270", "1", "18 months", "2"]
+            f_term_usd = st.selectbox("Term", usd_terms, key="f_term_usd")
+        with ftu2:
+            f_rate_usd = st.text_input("Rate", key="f_rate_usd", placeholder="e.g. 3.75%")
+        with ftu3:
+            st.write("")
+            add_term_btn_usd = st.form_submit_button("+ Add Term")
+
+    if add_term_btn_usd:
+        issuer_val_usd = st.session_state.get("f_issuer_usd", "").strip()
+        rate_val_usd   = st.session_state.get("f_rate_usd",   "").strip()
+        term_val_usd   = st.session_state.get("f_term_usd",   "")
+        if not issuer_val_usd:
+            st.warning("Enter an institution name first.")
+        elif not rate_val_usd:
+            st.warning("Enter a rate first.")
+        else:
+            st.session_state.pending_terms.append({"term": term_val_usd, "rate": rate_val_usd})
+
+    # Show pending terms for the current USD entry
+    if st.session_state.pending_terms:
+        st.markdown("**Terms being added:**")
+        for i, te in enumerate(list(st.session_state.pending_terms)):
+            pc1, pc2 = st.columns([5, 1])
+            pc1.write(f"• **{te['term']}** — {te['rate']}")
+            if pc2.button("✕", key=f"rm_pterm_usd_{i}"):
+                st.session_state.pending_terms.pop(i)
+                st.rerun()
+
+        issuer_val_usd = st.session_state.get("f_issuer_usd", "").strip()
+        dbrs_val_usd   = st.session_state.get("f_dbrs",       "").strip()
+        sp_val_usd     = st.session_state.get("f_sp",         "").strip()
+
+        if st.button("✅ Save to Special Rates (USD)", key="save_special_entry_usd"):
+            if not issuer_val_usd:
+                st.warning("Enter an institution name.")
+            else:
+                entry_usd = {
+                    "issuer":    issuer_val_usd,
+                    "dbrs":      dbrs_val_usd,
+                    "sp":        sp_val_usd,
+                    "entries":   list(st.session_state.pending_terms),
+                }
+                st.session_state.special_rates_v2_usd.append(entry_usd)
+                st.session_state.pending_terms = []
+                st.rerun()
+
+    # ── Current special rates list (USD) ──────────────────────────────────────
+    if st.session_state.special_rates_v2_usd:
+        st.markdown("**Saved special rates (USD):**")
+        for i, entry in enumerate(list(st.session_state.special_rates_v2_usd)):
+            terms_summary = ", ".join(f"{te['term']} {te['rate']}"
+                                      for te in entry.get("entries", []))
+            with st.expander(f"**{entry['issuer']}** — {terms_summary}"):
+                st.write(f"**DBRS:** {entry.get('dbrs') or '—'}")
+                st.write(f"**S&P:** {entry.get('sp') or '—'}")
+                for te in entry.get("entries", []):
+                    st.write(f"• {te['term']}: {te['rate']}")
+                if st.button("🗑 Delete", key=f"del_sp_usd_{i}"):
+                    st.session_state.special_rates_v2_usd.pop(i)
                     st.rerun()
 
     # ── Issuer Database ───────────────────────────────────────────────────────
