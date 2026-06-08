@@ -10,3 +10,4 @@ dist/
 *.ico
 icon.iconset/
 .claude/
+.github/workflows/
