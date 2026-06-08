@@ -2107,6 +2107,10 @@ if "special_rates_v2_usd" not in st.session_state:
     st.session_state.special_rates_v2_usd = []
 if "pending_terms" not in st.session_state:
     st.session_state.pending_terms = []
+if "edit_special_rate_index" not in st.session_state:
+    st.session_state.edit_special_rate_index = None
+if "edit_special_rate_currency" not in st.session_state:
+    st.session_state.edit_special_rate_currency = None
 
 
 def _load_one_lookup(path):
@@ -2573,9 +2577,73 @@ with tab_data:
                 st.write(f"**LT rating:** {entry.get('lt_rating') or '—'}")
                 for te in entry.get("entries", []):
                     st.write(f"• {te['term']}: {te['rate']}")
-                if st.button("🗑 Delete", key=f"del_sp_{i}"):
-                    st.session_state.special_rates_v2.pop(i)
-                    st.rerun()
+                ec1, ec2, ec3 = st.columns([1, 1, 2])
+                with ec1:
+                    if st.button("✏️ Edit", key=f"edit_sp_{i}"):
+                        st.session_state.edit_special_rate_index = i
+                        st.session_state.edit_special_rate_currency = "CAD"
+                        st.rerun()
+                with ec2:
+                    if st.button("🗑 Delete", key=f"del_sp_{i}"):
+                        st.session_state.special_rates_v2.pop(i)
+                        st.rerun()
+
+        # ── Edit form for CAD special rates ──────────────────────────────────
+        if st.session_state.edit_special_rate_index is not None and st.session_state.edit_special_rate_currency == "CAD":
+            edit_idx = st.session_state.edit_special_rate_index
+            if edit_idx < len(st.session_state.special_rates_v2):
+                edit_entry = st.session_state.special_rates_v2[edit_idx]
+                st.markdown("---")
+                st.markdown(f"**Editing: {edit_entry['issuer']}**")
+
+                # Edit issuer name
+                new_issuer = st.text_input("Institution name", value=edit_entry.get('issuer', ''), key="edit_issuer")
+
+                # Edit ratings
+                ec1, ec2 = st.columns(2)
+                with ec1:
+                    new_st = st.text_input("Short-term rating", value=edit_entry.get('st_rating', ''), key="edit_st")
+                with ec2:
+                    new_lt = st.text_input("Long-term rating", value=edit_entry.get('lt_rating', ''), key="edit_lt")
+
+                # Edit terms
+                st.markdown("**Edit terms:**")
+                new_entries = []
+                for ti, te in enumerate(edit_entry.get('entries', [])):
+                    tc1, tc2, tc3 = st.columns([2, 2, 0.5])
+                    with tc1:
+                        t_term = st.text_input(f"Term {ti+1}", value=te.get('term', ''), key=f"edit_term_{ti}")
+                    with tc2:
+                        t_rate = st.text_input(f"Rate {ti+1}", value=te.get('rate', ''), key=f"edit_rate_{ti}")
+                    with tc3:
+                        st.write("")
+                        if st.button("✕", key=f"edit_del_term_{ti}"):
+                            continue
+                    if t_term and t_rate:
+                        new_entries.append({"term": t_term, "rate": t_rate})
+
+                # Save changes button
+                es1, es2 = st.columns([1, 3])
+                with es1:
+                    if st.button("✅ Save Changes", key="save_edit_special"):
+                        if new_issuer:
+                            st.session_state.special_rates_v2[edit_idx] = {
+                                "issuer": new_issuer,
+                                "st_rating": new_st,
+                                "lt_rating": new_lt,
+                                "entries": new_entries,
+                            }
+                            st.session_state.edit_special_rate_index = None
+                            st.session_state.edit_special_rate_currency = None
+                            st.success("Changes saved!")
+                            st.rerun()
+                        else:
+                            st.warning("Enter an institution name.")
+                with es2:
+                    if st.button("Cancel", key="cancel_edit_special"):
+                        st.session_state.edit_special_rate_index = None
+                        st.session_state.edit_special_rate_currency = None
+                        st.rerun()
 
     # ═══════════════════════════════════════════════════════════════════════════
     st.markdown("---")
@@ -2705,9 +2773,73 @@ with tab_data:
                 st.write(f"**S&P:** {entry.get('sp') or '—'}")
                 for te in entry.get("entries", []):
                     st.write(f"• {te['term']}: {te['rate']}")
-                if st.button("🗑 Delete", key=f"del_sp_usd_{i}"):
-                    st.session_state.special_rates_v2_usd.pop(i)
-                    st.rerun()
+                eu1, eu2, eu3 = st.columns([1, 1, 2])
+                with eu1:
+                    if st.button("✏️ Edit", key=f"edit_sp_usd_{i}"):
+                        st.session_state.edit_special_rate_index = i
+                        st.session_state.edit_special_rate_currency = "USD"
+                        st.rerun()
+                with eu2:
+                    if st.button("🗑 Delete", key=f"del_sp_usd_{i}"):
+                        st.session_state.special_rates_v2_usd.pop(i)
+                        st.rerun()
+
+        # ── Edit form for USD special rates ──────────────────────────────────
+        if st.session_state.edit_special_rate_index is not None and st.session_state.edit_special_rate_currency == "USD":
+            edit_idx = st.session_state.edit_special_rate_index
+            if edit_idx < len(st.session_state.special_rates_v2_usd):
+                edit_entry = st.session_state.special_rates_v2_usd[edit_idx]
+                st.markdown("---")
+                st.markdown(f"**Editing: {edit_entry['issuer']}**")
+
+                # Edit issuer name
+                new_issuer_usd = st.text_input("Institution name", value=edit_entry.get('issuer', ''), key="edit_issuer_usd")
+
+                # Edit ratings
+                eu1, eu2 = st.columns(2)
+                with eu1:
+                    new_dbrs = st.text_input("DBRS rating", value=edit_entry.get('dbrs', ''), key="edit_dbrs")
+                with eu2:
+                    new_sp = st.text_input("S&P rating", value=edit_entry.get('sp', ''), key="edit_sp")
+
+                # Edit terms
+                st.markdown("**Edit terms:**")
+                new_entries_usd = []
+                for ti, te in enumerate(edit_entry.get('entries', [])):
+                    tuc1, tuc2, tuc3 = st.columns([2, 2, 0.5])
+                    with tuc1:
+                        tu_term = st.text_input(f"Term {ti+1}", value=te.get('term', ''), key=f"edit_term_usd_{ti}")
+                    with tuc2:
+                        tu_rate = st.text_input(f"Rate {ti+1}", value=te.get('rate', ''), key=f"edit_rate_usd_{ti}")
+                    with tuc3:
+                        st.write("")
+                        if st.button("✕", key=f"edit_del_term_usd_{ti}"):
+                            continue
+                    if tu_term and tu_rate:
+                        new_entries_usd.append({"term": tu_term, "rate": tu_rate})
+
+                # Save changes button
+                esu1, esu2 = st.columns([1, 3])
+                with esu1:
+                    if st.button("✅ Save Changes", key="save_edit_special_usd"):
+                        if new_issuer_usd:
+                            st.session_state.special_rates_v2_usd[edit_idx] = {
+                                "issuer": new_issuer_usd,
+                                "dbrs": new_dbrs,
+                                "sp": new_sp,
+                                "entries": new_entries_usd,
+                            }
+                            st.session_state.edit_special_rate_index = None
+                            st.session_state.edit_special_rate_currency = None
+                            st.success("Changes saved!")
+                            st.rerun()
+                        else:
+                            st.warning("Enter an institution name.")
+                with esu2:
+                    if st.button("Cancel", key="cancel_edit_special_usd"):
+                        st.session_state.edit_special_rate_index = None
+                        st.session_state.edit_special_rate_currency = None
+                        st.rerun()
 
     # ── Issuer Database ───────────────────────────────────────────────────────
     st.markdown("---")
