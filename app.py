@@ -2046,6 +2046,7 @@ if st.session_state.get("admin_authenticated"):
                     _save_disambiguate(); st.rerun()
 
     st.markdown("---")
+    _s = _app_settings_store()  # Load settings for all admin sections
     st.markdown("#### Full Morning Email Template")
     st.caption(
         "Customize the email format. Use placeholders: [GIC_CAD_TABLE], [GIC_USD_TABLE], [HISA_CAD], [HISA_USD], [NOTES]. "
@@ -2071,7 +2072,6 @@ if st.session_state.get("admin_authenticated"):
     st.markdown("---")
     st.markdown("#### Feature Visibility")
     st.caption("Hide tabs from regular users. Admin access is controlled by the admin password.")
-    _s = _app_settings_store()
     fv1, fv2, fv3 = st.columns(3)
     with fv1:
         _md_on = _s.get("show_master_data", True)
