@@ -1536,11 +1536,29 @@ def fi_rating(rating):
         return r.split(" – ")[0].strip() if " – " in r else r
     return "—"  # em dash — no credit rating, only guarantee/insurance
 
+def normalize_term_name(term_name):
+    """Convert any term name variant to the standard TERM_COLUMNS display name."""
+    term_name = str(term_name).strip()
+    # Build a mapping from all variants to display names
+    for display_name, source_col, _ in TERM_COLUMNS:
+        if term_name == display_name or term_name == source_col:
+            return display_name
+    return term_name
+
+
 def sort_output(output):
     """Sort rows into TERM_COLUMNS order, rate descending within each term."""
     from collections import defaultdict
-    groups = defaultdict(list)
+
+    # Normalize all term names to standard display names
+    normalized_output = []
     for row in output:
+        issuer, rating, term, rate = row
+        normalized_term = normalize_term_name(term)
+        normalized_output.append([issuer, rating, normalized_term, rate])
+
+    groups = defaultdict(list)
+    for row in normalized_output:
         groups[row[2]].append(row)
     result = []
     for tc in TERM_COLUMNS:
