@@ -87,8 +87,8 @@ def is_credit_or_guarantee(rating):
 
 # ── Term definitions ──────────────────────────────────────────────────────
 TERM_COLUMNS = [
-    ("Cashable After 30 Days", "cashable after 30 days", "HISA"),
-    ("Cashable After 90 Days", "cashable after 90 days", "HISA"),
+    ("1 Year Cashable After 30 Days", "cashable after 30 days", "HISA"),
+    ("1 Year Cashable After 90 Days", "cashable after 90 days", "HISA"),
     ("30 Days", "30 days", "GIC"),
     ("60 Days", "60 days", "GIC"),
     ("90 Days", "90 days", "GIC"),

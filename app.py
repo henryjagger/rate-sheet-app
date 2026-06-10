@@ -927,11 +927,11 @@ TERM_COLUMNS = [
     ("30 Day Fixed",                    "30 days",                         "short"),
     # ── Cashables (longest to shortest) ───────────────────────────────────
     ("2 Year Cashable After 365 Days",  "2 year cashable after 365 days",  "long"),
-    ("Cashable After 270 Days",         "cashable after 270 days",         "short"),
-    ("Cashable After 180 Days",         "cashable after 180 days",         "short"),
-    ("Cashable After 90 Days",          "cashable after 90 days",          "short"),
-    ("Cashable After 60 Days",          "cashable after 60 days",          "short"),
-    ("Cashable After 30 Days",          "cashable after 30 days",          "short"),
+    ("1 Year Cashable After 270 Days",  "cashable after 270 days",         "short"),
+    ("1 Year Cashable After 180 Days",  "cashable after 180 days",         "short"),
+    ("1 Year Cashable After 90 Days",   "cashable after 90 days",          "short"),
+    ("1 Year Cashable After 60 Days",   "cashable after 60 days",          "short"),
+    ("1 Year Cashable After 30 Days",   "cashable after 30 days",          "short"),
 ]
 
 
