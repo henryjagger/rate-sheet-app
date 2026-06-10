@@ -2111,6 +2111,14 @@ if "edit_special_rate_index" not in st.session_state:
     st.session_state.edit_special_rate_index = None
 if "edit_special_rate_currency" not in st.session_state:
     st.session_state.edit_special_rate_currency = None
+if "visible_terms" not in st.session_state:
+    # Default visible terms (excludes 120 Day, 60 Day Cashable, 180/270 Day Cashable, 365 Day Cashable)
+    st.session_state.visible_terms = {
+        "5 Year Fixed", "4 Year Fixed", "3 Year Fixed", "2 Year Fixed",
+        "18 Month Fixed", "1 Year Fixed", "270 Day Fixed", "180 Day Fixed",
+        "90 Day Fixed", "60 Day Fixed", "30 Day Fixed",
+        "1 Year Cashable After 90 Days", "1 Year Cashable After 30 Days"
+    }
 
 
 def _load_one_lookup(path):
@@ -3214,6 +3222,11 @@ with tab2:
             base    = [r for r in base    if is_credit_or_guarantee(r[1])]
             special = [r for r in special if is_credit_or_guarantee(r[1])]
         output = sort_output(base + special)
+
+        # Filter by visible terms (only for "All In GIC Rates")
+        if key == "rs_all_in_html":
+            output = [r for r in output if r[2] in st.session_state.visible_terms]
+
         if fi_only:
             # FI tables show only the credit rating; 100%/insurance-only → em dash
             output = [[r[0], fi_rating(r[1]), r[2], r[3]] for r in output]
@@ -3223,6 +3236,45 @@ with tab2:
     # ── 1. All In GIC Rates ───────────────────────────────────────────────────
     st.subheader("All In GIC Rates")
     st.caption("Every available rate from the master data, sorted by term then rate.")
+
+    # Term visibility toggles
+    with st.expander("⚙️ Show/hide terms", expanded=False):
+        all_terms = [t[0] for t in TERM_COLUMNS]
+        visible = st.session_state.visible_terms
+
+        st.markdown("**Fixed Terms**")
+        fixed_terms = [t for t in all_terms if "Cashable" not in t]
+        ft_col1, ft_col2, ft_col3 = st.columns(3)
+        cols = [ft_col1, ft_col2, ft_col3]
+        for idx, term in enumerate(fixed_terms):
+            col = cols[idx % 3]
+            with col:
+                if st.checkbox(term, value=term in visible, key=f"vis_{term}"):
+                    visible.add(term)
+                else:
+                    visible.discard(term)
+
+        st.markdown("**Cashable Terms**")
+        cash_terms = [t for t in all_terms if "Cashable" in t]
+        ct_col1, ct_col2, ct_col3 = st.columns(3)
+        cols = [ct_col1, ct_col2, ct_col3]
+        for idx, term in enumerate(cash_terms):
+            col = cols[idx % 3]
+            with col:
+                if st.checkbox(term, value=term in visible, key=f"vis_{term}"):
+                    visible.add(term)
+                else:
+                    visible.discard(term)
+
+        if st.button("Reset to defaults", key="reset_visible_terms"):
+            st.session_state.visible_terms = {
+                "5 Year Fixed", "4 Year Fixed", "3 Year Fixed", "2 Year Fixed",
+                "18 Month Fixed", "1 Year Fixed", "270 Day Fixed", "180 Day Fixed",
+                "90 Day Fixed", "60 Day Fixed", "30 Day Fixed",
+                "1 Year Cashable After 90 Days", "1 Year Cashable After 30 Days"
+            }
+            st.rerun()
+
     if st.button("Generate — All In GIC Rates"):
         _build_and_store("rs_all_in_html")
     if st.session_state.get("rs_all_in_html"):
