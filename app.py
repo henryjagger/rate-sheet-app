@@ -2147,6 +2147,44 @@ def _load_one_lookup(path):
     df.columns = [str(c).strip().lower() for c in df.columns]
     return build_lookup(df)
 
+
+def save_min_max_to_excel(institution_name, min_amount, max_amount):
+    """Save min/max adjustments to the primary lookup Excel file."""
+    if not os.path.exists(PRIMARY_LOOKUP_PATH):
+        st.error(f"Lookup file not found at {PRIMARY_LOOKUP_PATH}")
+        return False
+
+    try:
+        # Load the Excel file
+        df = pd.read_excel(PRIMARY_LOOKUP_PATH)
+
+        # Find the row matching the institution (case-insensitive)
+        mask = df["display name"].astype(str).str.strip().str.lower() == institution_name.lower()
+
+        if not mask.any():
+            # Try matching by lookup name
+            mask = df["lookup name"].astype(str).str.strip().str.lower() == institution_name.lower()
+
+        if mask.any():
+            # Update min and max amount columns
+            df.loc[mask, "min amount"] = min_amount
+            df.loc[mask, "max amount"] = max_amount
+
+            # Save back to Excel
+            with pd.ExcelWriter(PRIMARY_LOOKUP_PATH, engine="openpyxl") as writer:
+                df.to_excel(writer, sheet_name="Institutions", index=False)
+
+            # Clear the cached lookup so it reloads on next use
+            st.cache_data.clear()
+
+            return True
+        else:
+            st.warning(f"Institution '{institution_name}' not found in lookup file")
+            return False
+    except Exception as e:
+        st.error(f"Error saving to Excel: {str(e)}")
+        return False
+
 @st.cache_data
 def load_backend_lookup():
     """Load primary lookup first; fill any gaps from the backup file."""
@@ -2501,13 +2539,15 @@ with tab_data:
 
             col_save, col_del = st.columns([1, 1])
             with col_save:
-                if st.button("💾 Save", key=f"save_minmax_{selected_institution}"):
-                    st.session_state.min_max_adjustments[selected_institution] = {
-                        "min_amount": min_val,
-                        "max_amount": max_val
-                    }
-                    st.success(f"✅ Saved min/max for {selected_institution}")
-                    st.rerun()
+                if st.button("💾 Save to Excel", key=f"save_minmax_{selected_institution}"):
+                    # Save to both Excel file and session state
+                    if save_min_max_to_excel(selected_institution, min_val, max_val):
+                        st.session_state.min_max_adjustments[selected_institution] = {
+                            "min_amount": min_val,
+                            "max_amount": max_val
+                        }
+                        st.success(f"✅ Saved min/max for {selected_institution} to Excel")
+                        st.rerun()
             with col_del:
                 if st.button("🗑️ Reset", key=f"reset_minmax_{selected_institution}"):
                     if selected_institution in st.session_state.min_max_adjustments:
