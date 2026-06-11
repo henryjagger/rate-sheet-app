@@ -836,7 +836,7 @@ def find_insurance_url(text):
 
 def _make_link(provider, url, text_segment):
     """Replace provider name in text_segment with a hyperlink, preserving surrounding text."""
-    idx = text_segment.upper().find(provider)
+    idx = text_segment.upper().find(provider.upper())
     if idx == -1:
         return text_segment
     before  = text_segment[:idx]
