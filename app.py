@@ -3176,8 +3176,6 @@ with tab1:
                 st.rerun()
 
         if display_rows_adj:
-            # DEBUG: Show what text is in the rating column
-            st.write(f"**DEBUG - First row rating:** `{display_rows_adj[0][1]}`")
             _copy_button_component(
                 build_copy_html(display_rows_adj),
                 "Copy to Clipboard",
