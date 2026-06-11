@@ -2151,7 +2151,7 @@ def _load_one_lookup(path):
 def add_missing_institutions_to_lookup(master_grid):
     """Add institutions from master data to lookup Excel if they don't exist."""
     if not os.path.exists(PRIMARY_LOOKUP_PATH):
-        st.error(f"Lookup file not found at {PRIMARY_LOOKUP_PATH}")
+        st.error(f"❌ Lookup file not found at {PRIMARY_LOOKUP_PATH}")
         return 0
 
     try:
@@ -2160,6 +2160,9 @@ def add_missing_institutions_to_lookup(master_grid):
             master_grid["Issuer"].astype(str).str.strip()
         )
         master_institutions = {i for i in master_institutions if i and i != ""}
+
+        st.write(f"**Institutions in master data:** {len(master_institutions)}")
+        st.write(f"Examples: {list(master_institutions)[:3]}")
 
         # Load lookup to see what's already there
         lookup_df = pd.read_excel(PRIMARY_LOOKUP_PATH)
@@ -2173,8 +2176,12 @@ def add_missing_institutions_to_lookup(master_grid):
             lookup_df_lower["display name"].astype(str).str.strip().str.lower()
         )
 
+        st.write(f"**Institutions in lookup:** {len(existing)}")
+
         # Find missing institutions
         missing = [i for i in master_institutions if i.lower() not in existing]
+
+        st.write(f"**Missing institutions:** {missing}")
 
         if not missing:
             st.info("✅ All institutions are already in the lookup file.")
@@ -2207,8 +2214,13 @@ def add_missing_institutions_to_lookup(master_grid):
 
         return len(missing)
 
+    except PermissionError:
+        st.error(f"❌ Permission denied: Excel file is locked. Close it and try again.")
+        return 0
     except Exception as e:
-        st.error(f"Error adding institutions: {str(e)}")
+        st.error(f"❌ Error adding institutions: {str(e)}")
+        st.write(f"**File path:** {PRIMARY_LOOKUP_PATH}")
+        st.write(f"**File writable:** {os.access(PRIMARY_LOOKUP_PATH, os.W_OK)}")
         return 0
 
 
