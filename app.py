@@ -2254,8 +2254,15 @@ def save_min_max_to_excel(institution_name, min_amount, max_amount):
         else:
             st.warning(f"Institution '{institution_name}' not found in lookup file")
             return False
+    except PermissionError:
+        st.error(f"❌ Permission denied: Excel file is locked. Close it and try again.")
+        return False
     except Exception as e:
-        st.error(f"Error saving to Excel: {str(e)}")
+        st.error(f"❌ Error saving to Excel: {str(e)}")
+        st.write(f"**File path:** {PRIMARY_LOOKUP_PATH}")
+        st.write(f"**File exists:** {os.path.exists(PRIMARY_LOOKUP_PATH)}")
+        st.write(f"**File readable:** {os.access(PRIMARY_LOOKUP_PATH, os.R_OK)}")
+        st.write(f"**File writable:** {os.access(PRIMARY_LOOKUP_PATH, os.W_OK)}")
         return False
 
 @st.cache_data
