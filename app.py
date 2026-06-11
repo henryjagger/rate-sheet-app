@@ -2148,6 +2148,63 @@ def _load_one_lookup(path):
     return build_lookup(df)
 
 
+def add_missing_institutions_to_lookup(master_grid):
+    """Add institutions from master data to lookup Excel if they don't exist."""
+    if not os.path.exists(PRIMARY_LOOKUP_PATH):
+        st.error(f"Lookup file not found at {PRIMARY_LOOKUP_PATH}")
+        return 0
+
+    try:
+        # Get all institutions from master data
+        master_institutions = set(
+            master_grid["Issuer"].astype(str).str.strip()
+        )
+        master_institutions = {i for i in master_institutions if i and i != ""}
+
+        # Load lookup to see what's already there
+        lookup_df = pd.read_excel(PRIMARY_LOOKUP_PATH)
+        lookup_df.columns = [str(c).strip().lower() for c in lookup_df.columns]
+        existing = set(
+            lookup_df["display name"].astype(str).str.strip().str.lower()
+        )
+
+        # Find missing institutions
+        missing = [i for i in master_institutions if i.lower() not in existing]
+
+        if not missing:
+            st.info("✅ All institutions are already in the lookup file.")
+            return 0
+
+        # Add missing institutions to lookup
+        original_columns = list(lookup_df.columns)
+        new_rows = []
+        for inst in missing:
+            new_row = {col: "" for col in lookup_df.columns}
+            new_row["lookup name"] = inst.lower().replace(" ", "_")
+            new_row["display name"] = inst
+            new_row["active"] = "Yes"
+            new_rows.append(new_row)
+
+        new_df = pd.DataFrame(new_rows)
+        combined = pd.concat([lookup_df, new_df], ignore_index=True)
+
+        # Restore original column names
+        combined.columns = original_columns
+
+        # Save back to Excel
+        with pd.ExcelWriter(PRIMARY_LOOKUP_PATH, engine="openpyxl") as writer:
+            combined.to_excel(writer, sheet_name="Institutions", index=False)
+
+        # Clear cache
+        st.cache_data.clear()
+
+        return len(missing)
+
+    except Exception as e:
+        st.error(f"Error adding institutions: {str(e)}")
+        return 0
+
+
 def save_min_max_to_excel(institution_name, min_amount, max_amount):
     """Save min/max adjustments to the primary lookup Excel file."""
     if not os.path.exists(PRIMARY_LOOKUP_PATH):
@@ -2630,6 +2687,16 @@ with tab_data:
     n = master_row_count()
     if n:
         st.caption(f"{n} institution{'s' if n != 1 else ''} entered.")
+
+    # Add button to sync missing institutions to lookup
+    if n:
+        col_sync, _ = st.columns([1, 3])
+        with col_sync:
+            if st.button("➕ Add Missing to Lookup", help="Add any institutions from master data that aren't in the lookup file yet"):
+                added = add_missing_institutions_to_lookup(st.session_state.master_grid)
+                if added > 0:
+                    st.success(f"✅ Added {added} new institution{'s' if added != 1 else ''} to lookup file!")
+                    st.rerun()
 
     st.markdown("---")
     st.subheader("Special Rates")
