@@ -2571,6 +2571,19 @@ with tab_data:
             st.session_state.master_grid["Issuer"].astype(str).str.strip()
         ))
         all_institutions = [i for i in all_institutions if i and i != ""]
+
+        # Load adjustments from Excel on page load
+        if lookup and not st.session_state.min_max_adjustments:
+            for inst in all_institutions:
+                norm_name = normalize_name(inst)
+                if norm_name in lookup:
+                    min_amt = lookup[norm_name].get("min_amount", "")
+                    max_amt = lookup[norm_name].get("max_amount", "")
+                    if min_amt or max_amt:
+                        st.session_state.min_max_adjustments[inst] = {
+                            "min_amount": min_amt,
+                            "max_amount": max_amt
+                        }
     else:
         all_institutions = []
 
@@ -2638,6 +2651,16 @@ with tab_data:
                 st.dataframe(adj_df, use_container_width=True, hide_index=True)
     else:
         st.info("👉 Add institutions to the CAD rates section below to adjust their min/max amounts.")
+
+    # Show summary of all adjustments at the bottom
+    if st.session_state.min_max_adjustments:
+        st.markdown("---")
+        st.subheader("📋 All Min/Max Adjustments")
+        adj_df = pd.DataFrame([
+            {"Institution": k, "Min Amount": v.get("min_amount", ""), "Max Amount": v.get("max_amount", "")}
+            for k, v in st.session_state.min_max_adjustments.items()
+        ])
+        st.dataframe(adj_df, use_container_width=True, hide_index=True)
 
     st.markdown("---")
     st.subheader("📊 Guaranteed Investment Certificates (CAD)")
