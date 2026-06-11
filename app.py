@@ -2455,12 +2455,13 @@ with tab_data:
         st.session_state.min_max_adjustments = {}
 
     # Get all institutions from master grid
-    all_institutions = sorted(set(
-        st.session_state.master_grid["Issuer"].astype(str).str.strip()
-        for col in [st.session_state.master_grid]
-        if not col.empty
-    ))
-    all_institutions = [i for i in all_institutions if i and i != ""]
+    if not st.session_state.master_grid.empty:
+        all_institutions = sorted(set(
+            st.session_state.master_grid["Issuer"].astype(str).str.strip()
+        ))
+        all_institutions = [i for i in all_institutions if i and i != ""]
+    else:
+        all_institutions = []
 
     if all_institutions:
         col1, col2, col3 = st.columns([2, 1, 1])
