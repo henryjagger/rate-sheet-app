@@ -2499,112 +2499,6 @@ with tab_data:
                 st.session_state.special_rates_v2_usd = shared.get("special_rates_v2_usd") or []
                 st.rerun()
 
-    # ── Min/Max Adjustment Section ────────────────────────────────────────────
-    st.markdown("---")
-    st.subheader("⚙️ Adjust Minimums & Maximums")
-    st.caption("Search for an institution and adjust its minimum/maximum amounts before generating rates.")
-
-    # Initialize session state for min/max adjustments
-    if "min_max_adjustments" not in st.session_state:
-        st.session_state.min_max_adjustments = {}
-
-    # Get all institutions from master grid
-    if not st.session_state.master_grid.empty:
-        all_institutions = sorted(set(
-            st.session_state.master_grid["Issuer"].astype(str).str.strip()
-        ))
-        all_institutions = [i for i in all_institutions if i and i != ""]
-
-        # Load adjustments from Excel on page load
-        if lookup and not st.session_state.min_max_adjustments:
-            for inst in all_institutions:
-                norm_name = normalize_name(inst)
-                if norm_name in lookup:
-                    min_amt = lookup[norm_name].get("min_amount", "")
-                    max_amt = lookup[norm_name].get("max_amount", "")
-                    if min_amt or max_amt:
-                        st.session_state.min_max_adjustments[inst] = {
-                            "min_amount": min_amt,
-                            "max_amount": max_amt
-                        }
-    else:
-        all_institutions = []
-
-    if all_institutions:
-        col1, col2, col3 = st.columns([2, 1, 1])
-        with col1:
-            selected_institution = st.selectbox(
-                "Search Institution",
-                options=all_institutions,
-                key="min_max_search"
-            )
-
-        if selected_institution:
-            # Get current min/max from lookup or adjustments
-            norm_name = normalize_name(selected_institution)
-            current_min = st.session_state.min_max_adjustments.get(selected_institution, {}).get("min_amount", "")
-            current_max = st.session_state.min_max_adjustments.get(selected_institution, {}).get("max_amount", "")
-
-            # If not adjusted yet, show lookup value
-            if not current_min and norm_name in lookup:
-                current_min = lookup[norm_name].get("min_amount", "")
-            if not current_max and norm_name in lookup:
-                current_max = lookup[norm_name].get("max_amount", "")
-
-            with col2:
-                min_val = st.text_input(
-                    "Minimum ($)",
-                    value=current_min,
-                    placeholder="e.g., $100K",
-                    key=f"min_{selected_institution}"
-                )
-            with col3:
-                max_val = st.text_input(
-                    "Maximum ($)",
-                    value=current_max,
-                    placeholder="e.g., $5M",
-                    key=f"max_{selected_institution}"
-                )
-
-            col_save, col_del = st.columns([1, 1])
-            with col_save:
-                if st.button("💾 Save to Excel", key=f"save_minmax_{selected_institution}"):
-                    # Save to both Excel file and session state
-                    if save_min_max_to_excel(selected_institution, min_val, max_val):
-                        st.session_state.min_max_adjustments[selected_institution] = {
-                            "min_amount": min_val,
-                            "max_amount": max_val
-                        }
-                        st.success(f"✅ Saved min/max for {selected_institution} to Excel")
-                        st.rerun()
-            with col_del:
-                if st.button("🗑️ Reset", key=f"reset_minmax_{selected_institution}"):
-                    if selected_institution in st.session_state.min_max_adjustments:
-                        del st.session_state.min_max_adjustments[selected_institution]
-                    st.success(f"Reset to lookup defaults")
-                    st.rerun()
-
-            # Show all adjustments
-            if st.session_state.min_max_adjustments:
-                st.markdown("**Current Adjustments:**")
-                adj_df = pd.DataFrame([
-                    {"Institution": k, "Min Amount": v.get("min_amount", ""), "Max Amount": v.get("max_amount", "")}
-                    for k, v in st.session_state.min_max_adjustments.items()
-                ])
-                st.dataframe(adj_df, use_container_width=True, hide_index=True)
-    else:
-        st.info("👉 Add institutions to the CAD rates section below to adjust their min/max amounts.")
-
-    # Show summary of all adjustments at the bottom
-    if st.session_state.min_max_adjustments:
-        st.markdown("---")
-        st.subheader("📋 All Min/Max Adjustments")
-        adj_df = pd.DataFrame([
-            {"Institution": k, "Min Amount": v.get("min_amount", ""), "Max Amount": v.get("max_amount", "")}
-            for k, v in st.session_state.min_max_adjustments.items()
-        ])
-        st.dataframe(adj_df, use_container_width=True, hide_index=True)
-
     st.markdown("---")
     st.subheader("📊 Guaranteed Investment Certificates (CAD)")
     st.caption(
@@ -3110,6 +3004,112 @@ with tab_data:
                                 }
                                 st.session_state.special_rates_v2.append(new_entry)
                                 st.rerun()
+
+    # ── Min/Max Adjustment Section (at bottom) ────────────────────────────────
+    st.markdown("---")
+    st.subheader("⚙️ Adjust Minimums & Maximums")
+    st.caption("Search for an institution and adjust its minimum/maximum amounts before generating rates.")
+
+    # Initialize session state for min/max adjustments
+    if "min_max_adjustments" not in st.session_state:
+        st.session_state.min_max_adjustments = {}
+
+    # Get all institutions from master grid
+    if not st.session_state.master_grid.empty:
+        all_institutions = sorted(set(
+            st.session_state.master_grid["Issuer"].astype(str).str.strip()
+        ))
+        all_institutions = [i for i in all_institutions if i and i != ""]
+
+        # Load adjustments from Excel on page load
+        if lookup and not st.session_state.min_max_adjustments:
+            for inst in all_institutions:
+                norm_name = normalize_name(inst)
+                if norm_name in lookup:
+                    min_amt = lookup[norm_name].get("min_amount", "")
+                    max_amt = lookup[norm_name].get("max_amount", "")
+                    if min_amt or max_amt:
+                        st.session_state.min_max_adjustments[inst] = {
+                            "min_amount": min_amt,
+                            "max_amount": max_amt
+                        }
+    else:
+        all_institutions = []
+
+    if all_institutions:
+        col1, col2, col3 = st.columns([2, 1, 1])
+        with col1:
+            selected_institution = st.selectbox(
+                "Search Institution",
+                options=all_institutions,
+                key="min_max_search"
+            )
+
+        if selected_institution:
+            # Get current min/max from lookup or adjustments
+            norm_name = normalize_name(selected_institution)
+            current_min = st.session_state.min_max_adjustments.get(selected_institution, {}).get("min_amount", "")
+            current_max = st.session_state.min_max_adjustments.get(selected_institution, {}).get("max_amount", "")
+
+            # If not adjusted yet, show lookup value
+            if not current_min and norm_name in lookup:
+                current_min = lookup[norm_name].get("min_amount", "")
+            if not current_max and norm_name in lookup:
+                current_max = lookup[norm_name].get("max_amount", "")
+
+            with col2:
+                min_val = st.text_input(
+                    "Minimum ($)",
+                    value=current_min,
+                    placeholder="e.g., $100K",
+                    key=f"min_{selected_institution}"
+                )
+            with col3:
+                max_val = st.text_input(
+                    "Maximum ($)",
+                    value=current_max,
+                    placeholder="e.g., $5M",
+                    key=f"max_{selected_institution}"
+                )
+
+            col_save, col_del = st.columns([1, 1])
+            with col_save:
+                if st.button("💾 Save to Excel", key=f"save_minmax_{selected_institution}"):
+                    # Save to both Excel file and session state
+                    if save_min_max_to_excel(selected_institution, min_val, max_val):
+                        st.session_state.min_max_adjustments[selected_institution] = {
+                            "min_amount": min_val,
+                            "max_amount": max_val
+                        }
+                        st.success(f"✅ Saved min/max for {selected_institution} to Excel")
+                        st.rerun()
+            with col_del:
+                if st.button("🗑️ Reset", key=f"reset_minmax_{selected_institution}"):
+                    if selected_institution in st.session_state.min_max_adjustments:
+                        del st.session_state.min_max_adjustments[selected_institution]
+                    st.success(f"Reset to lookup defaults")
+                    st.rerun()
+
+            # Show all adjustments
+            if st.session_state.min_max_adjustments:
+                st.markdown("**Current Adjustments:**")
+                adj_df = pd.DataFrame([
+                    {"Institution": k, "Min Amount": v.get("min_amount", ""), "Max Amount": v.get("max_amount", "")}
+                    for k, v in st.session_state.min_max_adjustments.items()
+                ])
+                st.dataframe(adj_df, use_container_width=True, hide_index=True)
+    else:
+        st.info("👉 Add institutions to the CAD rates section to adjust their min/max amounts.")
+
+    # Show summary of all adjustments at the bottom
+    if st.session_state.min_max_adjustments:
+        st.markdown("---")
+        st.subheader("📋 All Min/Max Adjustments")
+        adj_df = pd.DataFrame([
+            {"Institution": k, "Min Amount": v.get("min_amount", ""), "Max Amount": v.get("max_amount", "")}
+            for k, v in st.session_state.min_max_adjustments.items()
+        ])
+        st.dataframe(adj_df, use_container_width=True, hide_index=True)
 
 
 with tab1:
