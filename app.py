@@ -2179,7 +2179,13 @@ def add_missing_institutions_to_lookup(master_grid):
         st.write(f"**Institutions in lookup:** {len(existing)}")
 
         # Find missing institutions
-        missing = [i for i in master_institutions if i.lower() not in existing]
+        # Extract base name (before parentheses) for matching
+        missing = []
+        for inst in master_institutions:
+            # Get base name (everything before first parenthesis)
+            base_name = inst.split("(")[0].strip().lower()
+            if base_name and base_name not in existing:
+                missing.append(inst)
 
         st.write(f"**Missing institutions:** {missing}")
 
