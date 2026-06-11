@@ -766,12 +766,10 @@ INSURANCE_URLS_PATH = os.path.join(os.path.expanduser("~"), ".ratesheet", "insur
 
 _DEFAULT_INSURANCE_URLS = {
     "CDIC":  "https://www.cdic.ca",
-    "DICO":  "https://www.fsrao.ca",
     "FSRA":  "https://www.fsrao.ca",
-    "DGCM":  "https://www.dgcm.ca",
     "CUDIC": "https://www.cudic.gov.bc.ca",
-    "CUDGM": "https://www.dgcm.ca",
-    "CUIM":  "https://www.cuim.ca",
+    "CUDGC(AB)": "https://cudgc.ab.ca/",
+    "CUDGC(SK)": "https://cudgc.sk.ca/"
 }
 
 @st.cache_resource
@@ -799,7 +797,7 @@ DISAMBIGUATE_PATH = os.path.join(os.path.expanduser("~"), ".ratesheet", "provinc
 
 @st.cache_resource
 def _disambiguate_store():
-    """Providers that need province appended from master data (e.g. CUDGC → CUDGC (SK))."""
+    """Providers that need province appended from master data (e.g. CUDGC → CUDGC(SK))."""
     store = {"providers": []}
     try:
         if os.path.exists(DISAMBIGUATE_PATH):
@@ -1106,11 +1104,14 @@ def rating_with_fallback(issuer_raw, row, term_type, lookup):
                 idx = rating.upper().find(provider)
                 if idx != -1:
                     actual = rating[idx: idx + len(provider)]
-                    rating = (
-                        rating[:idx]
-                        + f"{actual}({province})"
-                        + rating[idx + len(provider):]
-                    )
+                    # Don't append province if it's already there (e.g., CUDGC(SK) -> don't make CUDGC(SK)(SK))
+                    after_provider = rating[idx + len(provider):].strip()
+                    if not after_provider.startswith(f"({province})"):
+                        rating = (
+                            rating[:idx]
+                            + f"{actual}({province})"
+                            + rating[idx + len(provider):]
+                        )
                     break
     return rating
 
