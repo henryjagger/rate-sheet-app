@@ -2158,6 +2158,12 @@ def save_min_max_to_excel(institution_name, min_amount, max_amount):
         # Load the Excel file
         df = pd.read_excel(PRIMARY_LOOKUP_PATH)
 
+        # Store original column names
+        original_columns = list(df.columns)
+
+        # Standardize column names to lowercase for searching
+        df.columns = [str(c).strip().lower() for c in df.columns]
+
         # Find the row matching the institution (case-insensitive)
         mask = df["display name"].astype(str).str.strip().str.lower() == institution_name.lower()
 
@@ -2169,6 +2175,9 @@ def save_min_max_to_excel(institution_name, min_amount, max_amount):
             # Update min and max amount columns
             df.loc[mask, "min amount"] = min_amount
             df.loc[mask, "max amount"] = max_amount
+
+            # Restore original column names before saving
+            df.columns = original_columns
 
             # Save back to Excel
             with pd.ExcelWriter(PRIMARY_LOOKUP_PATH, engine="openpyxl") as writer:
