@@ -2163,9 +2163,14 @@ def add_missing_institutions_to_lookup(master_grid):
 
         # Load lookup to see what's already there
         lookup_df = pd.read_excel(PRIMARY_LOOKUP_PATH)
-        lookup_df.columns = [str(c).strip().lower() for c in lookup_df.columns]
+        original_columns = list(lookup_df.columns)
+
+        # Lowercase columns for comparison
+        lookup_df_lower = lookup_df.copy()
+        lookup_df_lower.columns = [str(c).strip().lower() for c in lookup_df_lower.columns]
+
         existing = set(
-            lookup_df["display name"].astype(str).str.strip().str.lower()
+            lookup_df_lower["display name"].astype(str).str.strip().str.lower()
         )
 
         # Find missing institutions
@@ -2176,20 +2181,22 @@ def add_missing_institutions_to_lookup(master_grid):
             return 0
 
         # Add missing institutions to lookup
-        original_columns = list(lookup_df.columns)
         new_rows = []
         for inst in missing:
-            new_row = {col: "" for col in lookup_df.columns}
-            new_row["lookup name"] = inst.lower().replace(" ", "_")
-            new_row["display name"] = inst
-            new_row["active"] = "Yes"
+            new_row = {col: "" for col in original_columns}
+            # Match column names from original
+            for col in original_columns:
+                col_lower = col.strip().lower()
+                if col_lower == "lookup name":
+                    new_row[col] = inst.lower().replace(" ", "_")
+                elif col_lower == "display name":
+                    new_row[col] = inst
+                elif col_lower == "active":
+                    new_row[col] = "Yes"
             new_rows.append(new_row)
 
-        new_df = pd.DataFrame(new_rows)
+        new_df = pd.DataFrame(new_rows, columns=original_columns)
         combined = pd.concat([lookup_df, new_df], ignore_index=True)
-
-        # Restore original column names
-        combined.columns = original_columns
 
         # Save back to Excel
         with pd.ExcelWriter(PRIMARY_LOOKUP_PATH, engine="openpyxl") as writer:
