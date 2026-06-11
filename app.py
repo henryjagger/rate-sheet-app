@@ -256,7 +256,7 @@ def build_copy_html(rows, style=None):
         return (
             f"<p align='center' style='{_P_BASE}color:{h_txt};'>"
             f"<span style='color:{h_txt};mso-color-alt:windowtext;'>"
-            f"<font face='{h_fnt}' color='{h_txt}'><u>{b_o}{content}{b_c}</u></font>"
+            f"<font face='{h_fnt}' color='{h_txt}'>{b_o}{content}{b_c}</font>"
             f"</span></p>"
         )
 
@@ -471,7 +471,7 @@ def build_usd_gic_html(rows, style=None):
         return (
             f"<p align='center' style='{_P_BASE}color:{h_txt};'>"
             f"<span style='color:{h_txt};mso-color-alt:windowtext;'>"
-            f"<font face='{h_fnt}' color='{h_txt}'><u>{b_o}{content}{b_c}</u></font>"
+            f"<font face='{h_fnt}' color='{h_txt}'>{b_o}{content}{b_c}</font>"
             f"</span></p>"
         )
 
