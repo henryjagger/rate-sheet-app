@@ -2148,88 +2148,6 @@ def _load_one_lookup(path):
     return build_lookup(df)
 
 
-def add_missing_institutions_to_lookup(master_grid):
-    """Add institutions from master data to lookup Excel if they don't exist."""
-    if not os.path.exists(PRIMARY_LOOKUP_PATH):
-        st.error(f"❌ Lookup file not found at {PRIMARY_LOOKUP_PATH}")
-        return 0
-
-    try:
-        # Get all institutions from master data
-        master_institutions = set(
-            master_grid["Issuer"].astype(str).str.strip()
-        )
-        master_institutions = {i for i in master_institutions if i and i != ""}
-
-        st.write(f"**Institutions in master data:** {len(master_institutions)}")
-        st.write(f"Examples: {list(master_institutions)[:3]}")
-
-        # Load lookup to see what's already there
-        lookup_df = pd.read_excel(PRIMARY_LOOKUP_PATH)
-        original_columns = list(lookup_df.columns)
-
-        # Lowercase columns for comparison
-        lookup_df_lower = lookup_df.copy()
-        lookup_df_lower.columns = [str(c).strip().lower() for c in lookup_df_lower.columns]
-
-        existing = set(
-            lookup_df_lower["display name"].astype(str).str.strip().str.lower()
-        )
-
-        st.write(f"**Institutions in lookup:** {len(existing)}")
-
-        # Find missing institutions
-        # Extract base name (before parentheses) for matching
-        missing = []
-        for inst in master_institutions:
-            # Get base name (everything before first parenthesis)
-            base_name = inst.split("(")[0].strip().lower()
-            if base_name and base_name not in existing:
-                missing.append(inst)
-
-        st.write(f"**Missing institutions:** {missing}")
-
-        if not missing:
-            st.info("✅ All institutions are already in the lookup file.")
-            return 0
-
-        # Add missing institutions to lookup
-        new_rows = []
-        for inst in missing:
-            new_row = {col: "" for col in original_columns}
-            # Match column names from original
-            for col in original_columns:
-                col_lower = col.strip().lower()
-                if col_lower == "lookup name":
-                    new_row[col] = inst.lower().replace(" ", "_")
-                elif col_lower == "display name":
-                    new_row[col] = inst
-                elif col_lower == "active":
-                    new_row[col] = "Yes"
-            new_rows.append(new_row)
-
-        new_df = pd.DataFrame(new_rows, columns=original_columns)
-        combined = pd.concat([lookup_df, new_df], ignore_index=True)
-
-        # Save back to Excel
-        with pd.ExcelWriter(PRIMARY_LOOKUP_PATH, engine="openpyxl") as writer:
-            combined.to_excel(writer, sheet_name="Institutions", index=False)
-
-        # Clear cache
-        st.cache_data.clear()
-
-        return len(missing)
-
-    except PermissionError:
-        st.error(f"❌ Permission denied: Excel file is locked. Close it and try again.")
-        return 0
-    except Exception as e:
-        st.error(f"❌ Error adding institutions: {str(e)}")
-        st.write(f"**File path:** {PRIMARY_LOOKUP_PATH}")
-        st.write(f"**File writable:** {os.access(PRIMARY_LOOKUP_PATH, os.W_OK)}")
-        return 0
-
-
 def save_min_max_to_excel(institution_name, min_amount, max_amount):
     """Save min/max adjustments to the primary lookup Excel file."""
     if not os.path.exists(PRIMARY_LOOKUP_PATH):
@@ -2744,15 +2662,6 @@ with tab_data:
         st.caption(f"{n} institution{'s' if n != 1 else ''} entered.")
 
     # Add button to sync missing institutions to lookup
-    if n:
-        col_sync, _ = st.columns([1, 3])
-        with col_sync:
-            if st.button("➕ Add Missing to Lookup", help="Add any institutions from master data that aren't in the lookup file yet"):
-                added = add_missing_institutions_to_lookup(st.session_state.master_grid)
-                if added > 0:
-                    st.success(f"✅ Added {added} new institution{'s' if added != 1 else ''} to lookup file!")
-                    st.rerun()
-
     st.markdown("---")
     st.subheader("Special Rates")
     st.caption("Enter the institution once, provide its ST and LT credit ratings, then add as many terms as you need.")
